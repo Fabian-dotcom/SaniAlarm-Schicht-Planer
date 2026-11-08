@@ -7,6 +7,7 @@ import com.fabian.sanialarmplaner.data.*
 import com.fabian.sanialarmplaner.logic.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -57,7 +58,7 @@ data class UiState(
     val statistikBis: LocalDate? = null,
 )
 
-class PlanerViewModel(private val store: ConfigStore) {
+class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamStore) {
 
     var state by mutableStateOf(UiState())
         private set
@@ -65,15 +66,29 @@ class PlanerViewModel(private val store: ConfigStore) {
     private val speicher = SaniteamSpeicher()
 
     init {
-        state = state.copy(config = store.laden())
+        state = state.copy(
+            config = store.laden(),
+            // Gespeicherte .saniteam-Daten laden (ueberlebt App-Neustart)
+            datei = saniteamStore.laden() ?: SaniteamDatei(),
+        )
+        configAusDatei()
     }
 
     // ------------------------------------------------------------------
     // SANITEAM-DATEI (Personen, Teams, Historie)
     // ------------------------------------------------------------------
 
+    private var saniteamSpeicherOrt: SaniteamStore? = null
+
+    /** Persistenz-Speicher injizieren (wird von MainActivity gesetzt). */
+    fun setSaniteamStore(s: SaniteamStore) {
+        saniteamSpeicherOrt = s
+    }
+
     fun updateDatei(transform: (SaniteamDatei) -> SaniteamDatei) {
         state = state.copy(datei = transform(state.datei))
+        // Jede Daten-Aenderung sofort dauerhaft speichern
+        saniteamSpeicherOrt?.speichern(state.datei)
         configAusDatei()
     }
 
@@ -186,6 +201,8 @@ class PlanerViewModel(private val store: ConfigStore) {
 
     fun uebernehmeImport(vorschau: ImportVorschau) {
         state = state.copy(datei = vorschau.ziel)
+        // Import dauerhaft speichern
+        saniteamSpeicherOrt?.speichern(state.datei)
         configAusDatei()
     }
 

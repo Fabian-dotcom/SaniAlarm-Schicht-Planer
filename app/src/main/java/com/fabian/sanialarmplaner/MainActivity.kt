@@ -11,6 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.fabian.sanialarmplaner.data.ConfigStore
+import com.fabian.sanialarmplaner.data.SaniteamStore
 import com.fabian.sanialarmplaner.ui.ImportDialogHost
 import com.fabian.sanialarmplaner.ui.PlanerScreen
 import com.fabian.sanialarmplaner.viewmodel.PlanerViewModel
@@ -23,7 +24,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        vm = PlanerViewModel(ConfigStore(this))
+        val saniteamStore = SaniteamStore(this)
+        vm = PlanerViewModel(ConfigStore(this), saniteamStore)
+        vm.setSaniteamStore(saniteamStore)
 
         // .saniteam-Datei, mit der die App gestartet wurde (z.B. aus Messenger)
         intentAuslesen(intent)

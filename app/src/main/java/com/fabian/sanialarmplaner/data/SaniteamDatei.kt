@@ -1,5 +1,7 @@
 package com.fabian.sanialarmplaner.data
 
+import android.content.Context
+import java.io.File
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -141,5 +143,29 @@ class SaniteamSpeicher(private val json: Json = Json { prettyPrint = true; ignor
         json.decodeFromString<SaniteamDatei>(text)
     } catch (_: Exception) {
         null
+    }
+}
+
+// ==============================================================================
+// PERSISTENZ DER .saniteam-DATEN (app-interner Speicher, ueberlebt Neustart)
+// ==============================================================================
+
+class SaniteamStore(context: Context) {
+    private val file = File(context.filesDir, "daten.saniteam")
+    private val speicher = SaniteamSpeicher()
+
+    fun laden(): SaniteamDatei? = try {
+        if (!file.exists()) null else speicher.deserialisieren(file.readText())
+    } catch (_: Exception) {
+        null
+    }
+
+    fun speichern(datei: SaniteamDatei) {
+        try {
+            file.parentFile?.mkdirs()
+            file.writeText(speicher.serialisieren(datei))
+        } catch (_: Exception) {
+            // Schreibfehler still ignorieren; beim naechsten Speichern erneut versuchen
+        }
     }
 }
