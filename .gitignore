@@ -1,0 +1,28 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# =====================================================================
+# Personliche / benutzer- bzw. projekt-spezifische Daten
+# Diese Dateien enthalten echte Namen und Vorkommnisse der Einrichtung
+# und gehoeren NICHT in ein oeffentliches Repository.
+# =====================================================================
+URSPRUNG/
+*.saniteam
+
+# Exporte / erstellte Plan-Dateien
+export/
+*.pdf
+!app/src/main/assets/*.pdf
