@@ -7,10 +7,14 @@ der Sanitaets-AG: 4 Wochen x 5 Wochentage, Teams aus 2-3 Personen plus Springer.
 
 - Automatische Planerstellung per Backtracking-Algorithmus
 - Krankmeldungen pro Person, optional tagesgenau (z.B. Urlaub)
+- Vertretungsvorschlaege fuer einzelne Dienste nach Verfuegbarkeit und Belastung
+- Schichttausch mit Regelpruefung fuer den resultierenden Gesamtplan
 - Feste Vorbelegungen fuer bereits gesetzte Schichten
 - Einzelne Regeln in den Einstellungen ein-/ausschaltbar
 - Personen-Kartei mit Nachname, Klasse, Geschlecht, Ausbildung, Partnerwunsch,
   Kontaktdaten; Teams werden daraus automatisch abgeleitet
+- Offline-Beitritt per QR-Code: Einladung, Formular und bestaetigte Uebernahme
+  in die Kartei ohne Server
 - Ausbildungs-Regel: jedes Team benoetigt mindestens eine ausgebildete Person
 - Statistiken mit Zeitraum-Filter, Import vergangener Schichten und
   Belastungsindex (Einsaetze pro Mitgliedsmonat)
@@ -36,6 +40,10 @@ Alle personenbezogenen Daten (Namen, Klasse, Telefon) liegen in einer
 .saniteam-Datei, die in der App erstellt, exportiert und importiert wird.
 Diese Datei und der Ordner URSPRUNG/ mit den Original-Daten sind in der
 .gitignore ausgeschlossen und gehoeren nicht in ein Repository.
+
+Beitritts-QR-Codes enthalten die eingegebenen Angaben direkt und sind fuer
+Personen lesbar, die den Code scannen. Sie werden nicht an einen Server
+uebertragen und sollten nur der AG-Leitung gezeigt werden.
 
 ## Build
 

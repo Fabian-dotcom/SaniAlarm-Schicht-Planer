@@ -30,6 +30,13 @@ data class PlanEintrag(
     val springer: String?,
     val mitglieder: List<String>,
     val vorbelegt: Boolean,
+    val vertretungHinweis: String? = null,
+)
+
+data class VertretungsVorschlag(
+    val name: String,
+    val ausSpringerReserve: Boolean,
+    val belastungsIndex: Double,
 )
 
 /** Statistik-Datensatz pro Person. */
@@ -260,6 +267,139 @@ class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamSto
         state = state.copy(abwesenheiten = state.abwesenheiten + (person to aktuell))
     }
 
+    fun vertretungsDienste(person: String): List<PlanEintrag> =
+        state.plan.filter { person in it.mitglieder }
+
+    fun vertretungsVorschlaege(eintrag: PlanEintrag, abwesend: String): List<VertretungsVorschlag> {
+        if (abwesend !in eintrag.mitglieder) return emptyList()
+
+        val verbleibendeMitglieder = eintrag.mitglieder - abwesend
+        val teamHatAusgebildetePerson = state.datei.personen.any {
+            it.vollerName() in verbleibendeMitglieder && it.ausbildungAbgeschlossen
+        }
+        val andereDienste = state.plan.filterNot {
+            it.woche == eintrag.woche && it.tag == eintrag.tag
+        }
+        val block = if (eintrag.woche <= 2) setOf(1, 2) else setOf(3, 4)
+        val heute = LocalDate.now()
+        val historie = historieGefiltert()
+
+        return state.datei.personen.asSequence()
+            .filter { it.aktiv }
+            .map { person ->
+                val name = person.vollerName()
+                val geplante = andereDienste.count { name in it.mitglieder }
+                val historische = historie.count { name in it.personNamen }
+                val gesamt = geplante + historische
+                val monate = try {
+                    if (person.seit.isBlank()) 0
+                    else java.time.Period.between(YearMonth.parse(person.seit).atDay(1), heute)
+                        .toTotalMonths().toInt()
+                } catch (_: Exception) {
+                    0
+                }
+                val faktor = if (person.ausbildungAbgeschlossen) 1.2 else 1.0
+                val index = if (monate > 0) (gesamt * faktor) / monate else gesamt * faktor * 2.0
+                Triple(person, name, index)
+            }
+            .filter { (person, name, _) ->
+                if (name == abwesend || name in eintrag.mitglieder || name in state.kranke) return@filter false
+                if (eintrag.tag in state.config.personSperrtage[name].orEmpty()) return@filter false
+                if (tagIndex(eintrag.woche, eintrag.tag) in state.abwesenheiten[name].orEmpty()) return@filter false
+                if (!teamHatAusgebildetePerson && !person.ausbildungAbgeschlossen) return@filter false
+
+                if (state.config.regeln.maxEineSchichtProWoche &&
+                    andereDienste.any { it.woche == eintrag.woche && name in it.mitglieder }
+                ) return@filter false
+                if (state.config.regeln.wochentagNurEinmal &&
+                    andereDienste.any { it.tag == eintrag.tag && name in it.mitglieder }
+                ) return@filter false
+                if (state.config.regeln.keinBackToBack && eintrag.tag == "Montag" && eintrag.woche > 1 &&
+                    state.plan.any { it.woche == eintrag.woche - 1 && it.tag == "Freitag" && name in it.mitglieder }
+                ) return@filter false
+                if (state.config.regeln.blockFairness &&
+                    andereDienste.count { it.woche in block && name in it.mitglieder } >= 2
+                ) return@filter false
+                val maxEinsaetze = state.config.personMaxEinsaetze[name]
+                if (maxEinsaetze != null && geplanteEinsaetze(name) >= maxEinsaetze) return@filter false
+                true
+            }
+            .map { (_, name, index) ->
+                VertretungsVorschlag(name, name in state.config.springer, index)
+            }
+            .sortedWith(compareBy<VertretungsVorschlag>({ !it.ausSpringerReserve }, { it.belastungsIndex }, { it.name }))
+            .toList()
+    }
+
+    fun ersetzePersonImPlan(eintrag: PlanEintrag, abwesend: String, vertretung: String): Boolean {
+        if (vertretungsVorschlaege(eintrag, abwesend).none { it.name == vertretung }) return false
+
+        state = state.copy(
+            plan = state.plan.map { aktuell ->
+                if (aktuell.woche == eintrag.woche && aktuell.tag == eintrag.tag) {
+                    aktuell.copy(
+                        springer = if (aktuell.springer == abwesend) vertretung else aktuell.springer,
+                        mitglieder = aktuell.mitglieder.map { if (it == abwesend) vertretung else it },
+                        vertretungHinweis = "$abwesend → $vertretung",
+                    )
+                } else aktuell
+            }
+        )
+        return true
+    }
+
+    fun tauscheDienste(erste: Schluessel, zweite: Schluessel): List<String> {
+        if (erste == zweite) return listOf("Bitte zwei unterschiedliche Dienste auswählen.")
+        if (state.plan.any { it.vertretungHinweis != null }) {
+            return listOf("Bei manuellen Vertretungen kann der Plan derzeit nicht sicher getauscht werden.")
+        }
+        val ersterEintrag = state.plan.firstOrNull { it.woche == erste.first && it.tag == erste.second }
+            ?: return listOf("Der erste Dienst ist nicht mehr im Plan.")
+        val zweiterEintrag = state.plan.firstOrNull { it.woche == zweite.first && it.tag == zweite.second }
+            ?: return listOf("Der zweite Dienst ist nicht mehr im Plan.")
+        if (ersterEintrag.vorbelegt || zweiterEintrag.vorbelegt) {
+            return listOf("Vorbelegte Dienste können nicht getauscht werden.")
+        }
+        if (ersterEintrag.vertretungHinweis != null || zweiterEintrag.vertretungHinweis != null) {
+            return listOf("Dienste mit manueller Vertretung können nicht getauscht werden.")
+        }
+
+        val neuerPlan = state.plan.map { eintrag ->
+            when {
+                eintrag.woche == erste.first && eintrag.tag == erste.second ->
+                    eintrag.copy(
+                        paar = zweiterEintrag.paar,
+                        springer = zweiterEintrag.springer,
+                        mitglieder = zweiterEintrag.mitglieder,
+                    )
+                eintrag.woche == zweite.first && eintrag.tag == zweite.second ->
+                    eintrag.copy(
+                        paar = ersterEintrag.paar,
+                        springer = ersterEintrag.springer,
+                        mitglieder = ersterEintrag.mitglieder,
+                    )
+                else -> eintrag
+            }
+        }
+        val aufstellung = verarbeiteAufstellung(state.config, state.kranke, state.abwesenheiten)
+        val fehler = validiereDienstplan(
+            state.config,
+            aufstellung,
+            neuerPlan.associate { (it.woche to it.tag) to Dienst(it.paar, it.springer) },
+            state.abwesenheiten,
+        )
+        if (fehler.isNotEmpty()) return fehler
+
+        state = state.copy(
+            plan = neuerPlan,
+            hinweise = state.hinweise + "Schichttausch ${erste.first}/${erste.second} ↔ ${zweite.first}/${zweite.second} regelkonform übernommen.",
+        )
+        return emptyList()
+    }
+
+    private fun geplanteEinsaetze(person: String): Int =
+        state.plan.count { person in it.mitglieder }
+
     fun fuegeVorbelegungHinzu(woche: Int, tag: String, paar: String, springer: String?) {
         if (state.vorbelegungen.containsKey(woche to tag)) return
         state = state.copy(
@@ -329,7 +469,10 @@ class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamSto
             sb.appendLine("--- WOCHE $w ---")
             for (t in Wochentage.dienst) {
                 val e = state.plan.firstOrNull { it.woche == w && it.tag == t } ?: continue
-                val marker = if (e.vorbelegt) " [VORBELEGT]" else ""
+                val marker = buildString {
+                    if (e.vorbelegt) append(" [VORBELEGT]")
+                    e.vertretungHinweis?.let { append(" [VERTRETUNG: $it]") }
+                }
                 sb.appendLine("  ${t.padEnd(11)}: ${e.mitglieder.joinToString()} (${e.mitglieder.size}er-Team)$marker")
             }
             sb.appendLine()

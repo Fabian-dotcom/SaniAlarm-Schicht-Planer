@@ -37,6 +37,7 @@ fun PersonenTab(vm: PlanerViewModel) {
     val state = vm.state
     var bearbeite by remember { mutableStateOf<Person?>(null) }
     var neu by remember { mutableStateOf(false) }
+    var zeigeQrBeitritt by remember { mutableStateOf(false) }
     var gridAnsicht by remember { mutableStateOf(false) }
 
     Column(
@@ -44,22 +45,29 @@ fun PersonenTab(vm: PlanerViewModel) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Personen-Kartei (${state.datei.personen.size})", style = MaterialTheme.typography.titleMedium)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             Spacer(Modifier.weight(1f))
             // Ansicht umschalten
             FilterChip(
                 selected = !gridAnsicht, onClick = { gridAnsicht = false }, label = { Text("Liste") }
             )
-            Spacer(Modifier.width(4.dp))
             FilterChip(
                 selected = gridAnsicht, onClick = { gridAnsicht = true }, label = { Text("Kacheln") }
             )
-            Spacer(Modifier.width(8.dp))
             Button(onClick = { neu = true }) { Text("+ Neu") }
         }
         Text(
             "Alle Angaben werden lokal in der .saniteam-Datei gespeichert (Export/Import in den Einstellungen). Ausgebildete Personen ohne Team dienen als Springer. Jedes Team braucht mindestens 1 ausgebildete Person.",
             style = MaterialTheme.typography.bodySmall
         )
+        OutlinedButton(onClick = { zeigeQrBeitritt = true }) {
+            Text("Beitritt per QR-Code")
+        }
         Spacer(Modifier.height(8.dp))
 
         if (state.datei.personen.isEmpty()) {
@@ -112,6 +120,9 @@ fun PersonenTab(vm: PlanerViewModel) {
     }
     bearbeite?.let { p ->
         PersonDialog(vm, p) { bearbeite = null }
+    }
+    if (zeigeQrBeitritt) {
+        BeitrittQrDialog(vm) { zeigeQrBeitritt = false }
     }
 }
 

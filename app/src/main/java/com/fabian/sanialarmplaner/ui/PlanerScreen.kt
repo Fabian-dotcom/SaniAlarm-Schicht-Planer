@@ -201,6 +201,7 @@ fun PlanTab(vm: PlanerViewModel, onWeiter: () -> Unit, onPersonen: () -> Unit) {
     val state = vm.state
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
+    var zeigeTausch by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -239,6 +240,11 @@ fun PlanTab(vm: PlanerViewModel, onWeiter: () -> Unit, onPersonen: () -> Unit) {
         if (state.plan.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
             KalenderAnsicht(state.plan)
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { zeigeTausch = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Schichten tauschen") }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
@@ -260,13 +266,102 @@ fun PlanTab(vm: PlanerViewModel, onWeiter: () -> Unit, onPersonen: () -> Unit) {
         }
         Spacer(Modifier.height(24.dp))
     }
+
+    if (zeigeTausch) {
+        DiensteTauschenDialog(vm) { zeigeTausch = false }
+    }
+}
+
+@Composable
+private fun DiensteTauschenDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
+    val plan = vm.state.plan.sortedWith(compareBy({ it.woche }, { Wochentage.dienst.indexOf(it.tag) }))
+    val optionen = plan.associateBy {
+        "Woche ${it.woche} · ${it.tag} — ${it.mitglieder.joinToString()}"
+    }
+    var ersterName by remember(plan) { mutableStateOf(optionen.keys.firstOrNull().orEmpty()) }
+    var zweiterName by remember(plan) {
+        mutableStateOf(optionen.keys.drop(1).firstOrNull().orEmpty())
+    }
+    var fehler by remember { mutableStateOf<List<String>>(emptyList()) }
+    var ersterStimmtZu by remember { mutableStateOf(false) }
+    var zweiterStimmtZu by remember { mutableStateOf(false) }
+    val ersterDienst = optionen[ersterName]
+    val zweiterDienst = optionen[zweiterName]
+    val zweiVerschiedeneDienste = ersterDienst != null && zweiterDienst != null &&
+        (ersterDienst.woche to ersterDienst.tag) != (zweiterDienst.woche to zweiterDienst.tag)
+
+    AlertDialog(
+        onDismissRequest = onSchliessen,
+        title = { Text("Schichten tauschen") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Wähle die beiden Dienste. Der Tausch wird nur übernommen, wenn der gesamte Plan regelkonform bleibt.")
+                LabeledDropdown(
+                    "Erster Dienst", optionen.keys.toList(), ersterName, Modifier.fillMaxWidth()
+                ) {
+                    ersterName = it
+                    ersterStimmtZu = false
+                    zweiterStimmtZu = false
+                }
+                LabeledDropdown(
+                    "Zweiter Dienst", optionen.keys.toList(), zweiterName, Modifier.fillMaxWidth()
+                ) {
+                    zweiterName = it
+                    ersterStimmtZu = false
+                    zweiterStimmtZu = false
+                }
+                if (ersterDienst?.vorbelegt == true || zweiterDienst?.vorbelegt == true) {
+                    Text("Vorbelegte Dienste sind gesperrt.", color = MaterialTheme.colorScheme.error)
+                }
+                if (zweiVerschiedeneDienste) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = ersterStimmtZu, onCheckedChange = { ersterStimmtZu = it })
+                        Text("${ersterDienst!!.mitglieder.joinToString()} stimmen dem Tausch zu.")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = zweiterStimmtZu, onCheckedChange = { zweiterStimmtZu = it })
+                        Text("${zweiterDienst!!.mitglieder.joinToString()} stimmen dem Tausch zu.")
+                    }
+                    Text(
+                        "Die Zustimmung wird lokal auf diesem Gerät bestätigt.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                fehler.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = zweiVerschiedeneDienste && ersterStimmtZu && zweiterStimmtZu,
+                onClick = {
+                val erste = optionen[ersterName]
+                val zweite = optionen[zweiterName]
+                if (erste == null || zweite == null) {
+                    fehler = listOf("Bitte zwei Dienste auswählen.")
+                } else {
+                    val ergebnis = vm.tauscheDienste(
+                        erste.woche to erste.tag,
+                        zweite.woche to zweite.tag,
+                    )
+                    if (ergebnis.isEmpty()) onSchliessen() else fehler = ergebnis
+                }
+            }) { Text("Prüfen und tauschen") }
+        },
+        dismissButton = {
+            TextButton(onClick = onSchliessen) { Text("Abbrechen") }
+        },
+    )
 }
 
 /** PDF-Erzeugung ueber Android-Print-Framework (WebView -> "Als PDF speichern"). */
 fun teileAlsPdf(context: android.content.Context, planText: String) {
     val rows = planText.lines().filter { it.contains(":") }.joinToString("") { line ->
         val parts = line.split(":", limit = 2)
-        "<tr><td>${parts[0].trim()}</td><td>${parts.getOrNull(1)?.trim() ?: ""}</td></tr>"
+        "<tr><td>${android.text.Html.escapeHtml(parts[0].trim())}</td>" +
+            "<td>${android.text.Html.escapeHtml(parts.getOrNull(1)?.trim().orEmpty())}</td></tr>"
     }
     val html = """
         <html><head><meta charset='utf-8'><style>
@@ -274,7 +369,7 @@ fun teileAlsPdf(context: android.content.Context, planText: String) {
         table{border-collapse:collapse;width:100%;} td{border:1px solid #999;padding:6px;}
         </style></head><body>
         <h1>Monatsdienstplan Sani-AG</h1>
-        <table>${'$'}rows</table>
+        <table>$rows</table>
         </body></html>
     """.trimIndent()
 
@@ -370,6 +465,7 @@ fun PlanZeile(e: PlanEintrag) {
                     append("${e.mitglieder.size}er-Team · ${e.paar}")
                     e.springer?.let { append(" + Springer $it") }
                     if (e.vorbelegt) append(" · VORBELEGT")
+                    e.vertretungHinweis?.let { append(" · Vertretung: $it") }
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -386,6 +482,7 @@ fun AusfaelleTab(vm: PlanerViewModel) {
     val state = vm.state
     val allePersonen = (state.config.teams.values.flatten() + state.config.springer).sorted()
     var dialogPerson by remember { mutableStateOf<String?>(null) }
+    var vertretungPerson by remember { mutableStateOf<String?>(null) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)
@@ -405,17 +502,25 @@ fun AusfaelleTab(vm: PlanerViewModel) {
             val krank = person in state.kranke
             val abwesendTage = state.abwesenheiten[person]?.size ?: 0
             Card(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                Row(Modifier.padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = krank, onCheckedChange = { vm.toggleKrank(person) })
-                    Column(Modifier.weight(1f)) {
-                        Text(person)
-                        if (abwesendTage > 0) {
-                            Text("$abwesendTage Tag(e) tagesgenau abwesend",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary)
+                Column(Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = krank, onCheckedChange = { vm.toggleKrank(person) })
+                        Column(Modifier.weight(1f)) {
+                            Text(person)
+                            if (abwesendTage > 0) {
+                                Text("$abwesendTage Tag(e) tagesgenau abwesend",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary)
+                            }
                         }
                     }
-                    TextButton(onClick = { dialogPerson = person }) { Text("Tage…") }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { dialogPerson = person }) { Text("Tage…") }
+                        TextButton(
+                            enabled = state.plan.any { person in it.mitglieder },
+                            onClick = { vertretungPerson = person },
+                        ) { Text("Vertretung") }
+                    }
                 }
             }
         }
@@ -457,6 +562,90 @@ fun AusfaelleTab(vm: PlanerViewModel) {
             }
         )
     }
+
+    vertretungPerson?.let { person ->
+        VertretungDialog(vm, person) { vertretungPerson = null }
+    }
+}
+
+@Composable
+private fun VertretungDialog(vm: PlanerViewModel, person: String, onSchliessen: () -> Unit) {
+    val dienste = vm.vertretungsDienste(person)
+    var ausgewaehlterSchluessel by remember(person) {
+        mutableStateOf(dienste.firstOrNull()?.let { it.woche to it.tag })
+    }
+    var meldung by remember { mutableStateOf<String?>(null) }
+    val dienst = dienste.firstOrNull {
+        (it.woche to it.tag) == ausgewaehlterSchluessel
+    }
+    val vorschlaege = dienst?.let { vm.vertretungsVorschlaege(it, person) }.orEmpty()
+
+    AlertDialog(
+        onDismissRequest = onSchliessen,
+        title = { Text("Vertretung für $person") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("Wähle den geplanten Dienst und eine verfügbare Vertretung.")
+                if (dienste.isEmpty()) {
+                    Text("Diese Person ist im aktuellen Plan nicht eingeteilt.")
+                } else {
+                    dienste.forEach { eintrag ->
+                        FilterChip(
+                            selected = ausgewaehlterSchluessel == (eintrag.woche to eintrag.tag),
+                            onClick = { ausgewaehlterSchluessel = eintrag.woche to eintrag.tag },
+                            label = { Text("Woche ${eintrag.woche} · ${eintrag.tag}") },
+                        )
+                    }
+                    Text("Vorschläge (Springer und niedrigere Belastung zuerst):",
+                        style = MaterialTheme.typography.titleSmall)
+                    if (vorschlaege.isEmpty()) {
+                        Text("Keine regelkonforme Vertretung gefunden.")
+                    }
+                    vorschlaege.forEach { vorschlag ->
+                        Card(Modifier.fillMaxWidth()) {
+                            Row(
+                                Modifier.padding(start = 10.dp, end = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(vorschlag.name, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        buildString {
+                                            if (vorschlag.ausSpringerReserve) append("Springer-Reserve · ")
+                                            append("Index %.2f".format(vorschlag.belastungsIndex))
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                TextButton(onClick = {
+                                    val aktuell = dienst
+                                    if (aktuell != null &&
+                                        vm.ersetzePersonImPlan(aktuell, person, vorschlag.name)
+                                    ) {
+                                        onSchliessen()
+                                    } else {
+                                        meldung = "Der Vorschlag ist nicht mehr verfügbar. Bitte erneut prüfen."
+                                    }
+                                }) { Text("Einsetzen") }
+                            }
+                        }
+                    }
+                }
+                Text(
+                    "Die Änderung gilt nur für den aktuell angezeigten Plan.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                meldung?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSchliessen) { Text("Fertig") }
+        },
+    )
 }
 
 // ==============================================================================

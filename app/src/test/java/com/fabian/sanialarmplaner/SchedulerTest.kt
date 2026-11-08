@@ -142,4 +142,25 @@ class SchedulerTest {
         val p2 = generiereDienstplan(cfg, a2).plan
         assertEquals(p1, p2)
     }
+
+    @Test
+    fun `gesamtplanpruefung akzeptiert generierten plan`() {
+        val aufstellung = verarbeiteAufstellung(config, emptySet())
+        val plan = generiereDienstplan(config, aufstellung).plan!!
+
+        assertTrue(validiereDienstplan(config, aufstellung, plan).isEmpty())
+    }
+
+    @Test
+    fun `gesamtplanpruefung lehnt regelwidrigen tausch ab`() {
+        val aufstellung = verarbeiteAufstellung(config, emptySet())
+        val plan = generiereDienstplan(config, aufstellung).plan!!.toMutableMap()
+        val erster = plan.entries.first()
+        val zweiter = plan.entries.first {
+            it.key.first == erster.key.first && it.value.paar != erster.value.paar
+        }
+        plan[zweiter.key] = erster.value
+
+        assertTrue(validiereDienstplan(config, aufstellung, plan).isNotEmpty())
+    }
 }

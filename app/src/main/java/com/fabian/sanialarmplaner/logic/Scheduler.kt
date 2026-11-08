@@ -204,6 +204,56 @@ fun pruefeBlockFairness(
         geplanteSpringer.size == aufstellung.aktiveSpringer.size
 }
 
+fun validiereDienstplan(
+    config: AppConfig,
+    aufstellung: Aufstellung,
+    dienstplan: Map<Schluessel, Dienst>,
+    abwesenheiten: Abwesenheiten = emptyMap(),
+): List<String> {
+    val erwarteteTage = Wochen.alle.flatMap { woche ->
+        Wochentage.dienst.map { tag -> Schluessel(woche, tag) }
+    }.toSet()
+    if (dienstplan.keys != erwarteteTage) {
+        return listOf("Der Tausch muss alle 20 geplanten Dienste enthalten.")
+    }
+
+    val validierteDienste = mutableMapOf<Schluessel, Dienst>()
+    val fehler = mutableListOf<String>()
+    val sortiert = dienstplan.entries.sortedWith(
+        compareBy({ it.key.first }, { Wochentage.dienst.indexOf(it.key.second) })
+    )
+    for ((schluessel, dienst) in sortiert) {
+        val (woche, tag) = schluessel
+        if (dienst.paar !in aufstellung.aktivePaare) {
+            fehler += "$tag, Woche $woche: Team ${dienst.paar} ist nicht verfügbar."
+            continue
+        }
+        if (dienst.springer != null && dienst.springer !in aufstellung.aktiveSpringer) {
+            fehler += "$tag, Woche $woche: Springer ${dienst.springer} ist nicht verfügbar."
+            continue
+        }
+        val verstoesse = istGueltig(
+            validierteDienste, woche, tag, dienst.paar, dienst.springer,
+            config, abwesenheiten,
+        )
+        if (verstoesse.isNotEmpty()) {
+            fehler += verstoesse.map { "$tag, Woche $woche: ${it.beschreibung}" }
+        } else {
+            validierteDienste[schluessel] = dienst
+        }
+    }
+
+    if (config.regeln.blockFairness) {
+        if (!pruefeBlockFairness(validierteDienste, listOf(1, 2), aufstellung)) {
+            fehler += "Der Tausch verletzt die Fairness im ersten Zwei-Wochen-Block."
+        }
+        if (!pruefeBlockFairness(validierteDienste, listOf(3, 4), aufstellung)) {
+            fehler += "Der Tausch verletzt die Fairness im zweiten Zwei-Wochen-Block."
+        }
+    }
+    return fehler.distinct()
+}
+
 // ==============================================================================
 // BACKTRACKING-GENERATOR
 // ==============================================================================
