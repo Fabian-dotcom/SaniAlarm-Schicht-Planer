@@ -126,13 +126,7 @@ fun PlanTab(vm: PlanerViewModel, onWeiter: () -> Unit, onPersonen: () -> Unit) {
 
         if (state.plan.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
-            for (w in Wochen.alle) {
-                Text("Woche $w", style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(top = 8.dp))
-                Wochentage.dienst.forEach { tag ->
-                    PlanZeile(state.plan.first { it.woche == w && it.tag == tag })
-                }
-            }
+            KalenderAnsicht(state.plan)
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
@@ -182,6 +176,71 @@ fun teileAlsPdf(context: android.content.Context, planText: String) {
         }
     }
     webView.loadData(html, "text/html; charset=utf-8", "UTF-8")
+}
+
+/** Kalender-Grid: 4 Wochen untereinander, je 5 Tagesspalten mit Kopfzeile. */
+@Composable
+fun KalenderAnsicht(plan: List<PlanEintrag>) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        for (w in Wochen.alle) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(8.dp)) {
+                    Text(
+                        "Woche $w",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+                    // Kopfzeile: Wochentage
+                    Row {
+                        Wochentage.dienst.forEach { tag ->
+                            Text(
+                                tag.take(2),
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.weight(1f),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    // Dienst-Zellen
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Wochentage.dienst.forEach { tag ->
+                            val e = plan.first { it.woche == w && it.tag == tag }
+                            KalenderZelle(e, Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun KalenderZelle(e: PlanEintrag, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.small,
+        color = if (e.vorbelegt) MaterialTheme.colorScheme.tertiaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 1.dp
+    ) {
+        Column(Modifier.padding(6.dp)) {
+            // Namen (nur Vornamen, damit es in die schmale Zelle passt)
+            e.mitglieder.forEach { name ->
+                Text(
+                    name.split(" ").first(),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1
+                )
+            }
+            e.springer?.let {
+                Text(
+                    "+ ${it.split(" ").first()}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
 }
 
 @Composable
