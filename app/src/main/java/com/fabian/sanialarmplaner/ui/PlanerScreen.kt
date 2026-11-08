@@ -40,7 +40,7 @@ import java.time.format.DateTimeFormatter
 fun PlanerScreen(vm: PlanerViewModel) {
     val state = vm.state
     var tab by remember { mutableStateOf(0) }
-    val tabs = listOf("Plan", "Ausfälle", "Vorbelegung", "Personen", "Statistik", "Einstellungen")
+    val tabs = listOf("Start", "Plan", "Ausfälle", "Vorbelegung", "Personen", "Statistik", "Einstellungen")
     val coroutineScope = rememberCoroutineScope()
 
     Scaffold(
@@ -59,16 +59,17 @@ fun PlanerScreen(vm: PlanerViewModel) {
             }
             Box(Modifier.weight(1f)) {
                 when (tab) {
-                    0 -> PlanTab(vm, onWeiter = { tab = 1 }, onPersonen = { tab = 3 })
-                    1 -> AusfaelleTab(vm)
-                    2 -> VorbelegungTab(vm)
-                    3 -> PersonenTab(vm)
-                    4 -> StatistikTab(vm)
-                    5 -> EinstellungenTab(vm)
+                    0 -> HomeTab(vm, gotoTab = { tab = it })
+                    1 -> PlanTab(vm, onWeiter = { tab = 2 }, onPersonen = { tab = 4 })
+                    2 -> AusfaelleTab(vm)
+                    3 -> VorbelegungTab(vm)
+                    4 -> PersonenTab(vm)
+                    5 -> StatistikTab(vm)
+                    6 -> EinstellungenTab(vm)
                 }
             }
             // Generieren-Button immer unten sichtbar
-            if (tab == 0 || tab == 1 || tab == 2) {
+            if (tab in listOf(1, 2, 3)) {
                 Button(
                     onClick = { coroutineScope.launch { vm.generiere() } },
                     enabled = !state.laeuft,
@@ -77,6 +78,117 @@ fun PlanerScreen(vm: PlanerViewModel) {
                         .padding(12.dp)
                 ) { Text(if (state.laeuft) "Rechnet…" else "Plan generieren") }
             }
+        }
+    }
+}
+
+// ==============================================================================
+// TAB 0: HOME (Uebersicht + Schnelleinstieg)
+// ==============================================================================
+@Composable
+fun HomeTab(vm: PlanerViewModel, gotoTab: (Int) -> Unit) {
+    val state = vm.state
+    val anzahlPersonen = state.datei.personen.count { it.aktiv }
+    val anzahlTeams = state.config.teams.size
+    val anzahlKrank = state.kranke.size
+    val hatPlan = state.plan.isNotEmpty()
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)
+    ) {
+        Text("Willkommen!", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            "Monatsdienstplan der Sani-AG planen, Statistiken führen, Ausfälle verwalten.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(Modifier.height(12.dp))
+
+        // Status-Karten
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            HomeStat("Personen", "$anzahlPersonen", Modifier.weight(1f))
+            HomeStat("Teams", "$anzahlTeams", Modifier.weight(1f))
+            HomeStat("Krank", "$anzahlKrank", Modifier.weight(1f))
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // Schnellstart-Schritte
+        Text("Schnellstart", style = MaterialTheme.typography.titleMedium)
+        HomeSchritt(
+            nummer = 1,
+            titel = "Personen anlegen",
+            beschreibung = if (anzahlPersonen == 0) "Noch keine Personen — hier starten!" else "$anzahlPersonen Personen vorhanden",
+            erledigt = anzahlPersonen > 0,
+            onClick = { gotoTab(4) }
+        )
+        HomeSchritt(
+            nummer = 2,
+            titel = "Ausfälle markieren",
+            beschreibung = if (anzahlKrank == 0) "Niemand krank gemeldet" else "$anzahlKrank Person(en) krank",
+            erledigt = anzahlKrank > 0,
+            onClick = { gotoTab(2) }
+        )
+        HomeSchritt(
+            nummer = 3,
+            titel = "Plan generieren",
+            beschreibung = if (hatPlan) "Plan ist bereit (Tab Plan)" else "Noch kein Plan für diesen Monat",
+            erledigt = hatPlan,
+            onClick = { gotoTab(1) }
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        // Nächster Dienst aus dem aktuellen Plan
+        if (hatPlan) {
+            Text("Nächster Dienst", style = MaterialTheme.typography.titleMedium)
+            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Column(Modifier.padding(12.dp)) {
+                    val naechster = state.plan.first()
+                    Text("Woche ${naechster.woche}, ${naechster.tag}", style = MaterialTheme.typography.titleSmall)
+                    Text(naechster.mitglieder.joinToString() + (naechster.springer?.let { " + $it" } ?: ""))
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Text("Weitere Bereiche", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { gotoTab(5) }, modifier = Modifier.weight(1f)) { Text("Statistik") }
+            OutlinedButton(onClick = { gotoTab(6) }, modifier = Modifier.weight(1f)) { Text("Einstellungen") }
+        }
+        Spacer(Modifier.height(60.dp))
+    }
+}
+
+@Composable
+fun HomeStat(label: String, wert: String, modifier: Modifier = Modifier) {
+    Card(modifier) {
+        Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(wert, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+            Text(label, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+fun HomeSchritt(nummer: Int, titel: String, beschreibung: String, erledigt: Boolean, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (erledigt) "✓" else "$nummer",
+                style = MaterialTheme.typography.titleMedium,
+                color = if (erledigt) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(28.dp)
+            )
+            Column(Modifier.weight(1f)) {
+                Text(titel, style = MaterialTheme.typography.bodyLarge)
+                Text(beschreibung, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text("›", style = MaterialTheme.typography.titleLarge)
         }
     }
 }
