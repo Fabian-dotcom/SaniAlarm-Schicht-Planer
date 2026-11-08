@@ -1,10 +1,16 @@
 package com.fabian.sanialarmplaner.ui
 
 import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,6 +37,7 @@ fun PersonenTab(vm: PlanerViewModel) {
     val state = vm.state
     var bearbeite by remember { mutableStateOf<Person?>(null) }
     var neu by remember { mutableStateOf(false) }
+    var gridAnsicht by remember { mutableStateOf(false) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)
@@ -38,6 +45,15 @@ fun PersonenTab(vm: PlanerViewModel) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Personen-Kartei (${state.datei.personen.size})", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.weight(1f))
+            // Ansicht umschalten
+            FilterChip(
+                selected = !gridAnsicht, onClick = { gridAnsicht = false }, label = { Text("Liste") }
+            )
+            Spacer(Modifier.width(4.dp))
+            FilterChip(
+                selected = gridAnsicht, onClick = { gridAnsicht = true }, label = { Text("Kacheln") }
+            )
+            Spacer(Modifier.width(8.dp))
             Button(onClick = { neu = true }) { Text("+ Neu") }
         }
         Text(
@@ -50,8 +66,21 @@ fun PersonenTab(vm: PlanerViewModel) {
             Text("Noch keine Personen angelegt.", style = MaterialTheme.typography.bodySmall)
         }
 
-        state.datei.personen.sortedWith(compareBy({ !it.aktiv }, { it.nachname }, { it.vorname }))
-            .forEach { p ->
+        val sortierte = state.datei.personen.sortedWith(compareBy({ !it.aktiv }, { it.nachname }, { it.vorname }))
+        if (gridAnsicht) {
+            // Kacheln: 2 Spalten
+            val zeilen = sortierte.chunked(2)
+            zeilen.forEach { paarzeile ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    paarzeile.forEach { p ->
+                        PersonKachel(p, Modifier.weight(1f)) { bearbeite = p }
+                    }
+                    if (paarzeile.size == 1) Spacer(Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        } else {
+            sortierte.forEach { p ->
                 Card(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
                     Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -74,6 +103,7 @@ fun PersonenTab(vm: PlanerViewModel) {
                     }
                 }
             }
+        }
         Spacer(Modifier.height(80.dp))
     }
 
@@ -82,6 +112,26 @@ fun PersonenTab(vm: PlanerViewModel) {
     }
     bearbeite?.let { p ->
         PersonDialog(vm, p) { bearbeite = null }
+    }
+}
+
+@Composable
+fun PersonKachel(p: Person, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Card(modifier = modifier, onClick = onClick) {
+        Column(Modifier.padding(10.dp)) {
+            Text(p.vollerName(), style = MaterialTheme.typography.titleSmall, maxLines = 1)
+            Text(
+                buildList {
+                    if (p.klasse.isNotBlank()) add(p.klasse)
+                    if (p.ausbildungAbgeschlossen) add("ausgebildet")
+                    if (!p.aktiv) add("INAKTIV")
+                }.joinToString(" · ").ifBlank { "Tap fuer Details" },
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                color = if (p.aktiv) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.error
+            )
+        }
     }
 }
 
@@ -288,6 +338,7 @@ fun StatistikTab(vm: PlanerViewModel) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HistorieEditor(vm: PlanerViewModel) {
     var datum by remember { mutableStateOf(LocalDate.now().toString()) }
@@ -299,7 +350,11 @@ fun HistorieEditor(vm: PlanerViewModel) {
             Text("Schicht nachtragen (für Statistik):", style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(datum, { datum = it }, label = { Text("Datum (JJJJ-MM-TT)") }, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            // FlowRow: Chips brechen um, alle Namen sind erreichbar
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 allePersonen.forEach { p ->
                     FilterChip(
                         selected = p in auswahl,
@@ -409,44 +464,7 @@ fun EinstellungenTab(vm: PlanerViewModel) {
         Spacer(Modifier.height(16.dp))
         // ---------------- .saniteam Export / Import ----------------
         Text("Daten (.saniteam)", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                val text = vm.exportSaniteam()
-                clipboard.setText(AnnotatedString(text))
-                importMeldung = "Export in Zwischenablage kopiert (${text.length} Zeichen)."
-            }) { Text("Exportieren") }
-            OutlinedButton(onClick = {
-                val intent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, vm.exportSaniteam())
-                    putExtra(Intent.EXTRA_TITLE, "saniteam-export.saniteam")
-                }
-                context.startActivity(Intent.createChooser(intent, ".saniteam teilen"))
-            }) { Text("Teilen") }
-        }
-        Spacer(Modifier.height(4.dp))
-        OutlinedTextField(
-            value = importText,
-            onValueChange = { importText = it },
-            label = { Text(".saniteam-JSON hier einfügen zum Import") },
-            modifier = Modifier.fillMaxWidth(),
-            minLines = 2
-        )
-        Button(
-            onClick = {
-                importMeldung = if (vm.importSaniteam(importText)) {
-                    "Import erfolgreich!"
-                } else "Import fehlgeschlagen — ungültiges Format."
-            },
-            enabled = importText.isNotBlank(),
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("Importieren") }
-        importMeldung?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall,
-                color = if (it.startsWith("Import erfolgreich")) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.error
-            )
-        }
+        SaniteamExportImport(vm)
 
         Spacer(Modifier.height(16.dp))
         Text("Präferenzen (Springer → bevorzugte Teams)", style = MaterialTheme.typography.titleMedium)
@@ -460,6 +478,71 @@ fun EinstellungenTab(vm: PlanerViewModel) {
         EinsatzLimitEditor(vm)
 
         Spacer(Modifier.height(80.dp))
+    }
+}
+
+@Composable
+fun SaniteamExportImport(vm: PlanerViewModel) {
+    val context = LocalContext.current
+    var meldung by remember { mutableStateOf<String?>(null) }
+
+    // Datei-Auswahl (System-Dateidialog)
+    val oeffnenLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val text = context.contentResolver.openInputStream(uri)
+                    ?.bufferedReader()?.use { it.readText() }
+                if (text != null) {
+                    if (vm.analyseImport(text) != null) {
+                        vm.pruefeOeffnungAnfordern(text)   // oeffnet den Vorschau-Dialog
+                        meldung = null
+                    } else {
+                        meldung = "Datei konnte nicht als .saniteam gelesen werden."
+                    }
+                }
+            } catch (e: Exception) {
+                meldung = "Lesefehler: ${e.message}"
+            }
+        }
+    }
+
+    // Export als echte Datei speichern (Downloads etc.)
+    val speichernLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    out.write(vm.exportSaniteam().toByteArray(Charsets.UTF_8))
+                }
+                meldung = "Datei gespeichert."
+            } catch (e: Exception) {
+                meldung = "Schreibfehler: ${e.message}"
+            }
+        }
+    }
+
+    Column {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { speichernLauncher.launch("saniteam-export.saniteam") }) {
+                Text("Datei speichern…")
+            }
+            OutlinedButton(onClick = { oeffnenLauncher.launch(arrayOf("*/*")) }) {
+                Text("Datei öffnen…")
+            }
+        }
+        meldung?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall,
+                color = if (it.startsWith("Datei gespeichert")) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.error)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Alternativ: Eine .saniteam-Datei aus dem Messenger direkt mit dieser App öffnen – der Vorschau-Dialog erscheint automatisch.",
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
 
