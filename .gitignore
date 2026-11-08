@@ -26,3 +26,9 @@ URSPRUNG/
 export/
 *.pdf
 !app/src/main/assets/*.pdf
+
+# Build-Log-Reste
+c*.txt
+t*.txt
+b*.txt
+*.log
