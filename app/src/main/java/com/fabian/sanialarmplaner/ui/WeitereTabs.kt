@@ -273,18 +273,24 @@ fun StatistikTab(vm: PlanerViewModel) {
         } else {
             val maxIndex = stats.maxOf { it.belastungsIndex }.coerceAtLeast(0.001)
             stats.forEach { s ->
-                Column(Modifier.padding(vertical = 4.dp)) {
-                    Row {
-                        Text(s.name, Modifier.weight(1f))
+                Card(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                    Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(s.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+                            Spacer(Modifier.weight(1f))
+                            Text("Index %.2f".format(s.belastungsIndex),
+                                style = MaterialTheme.typography.titleSmall)
+                        }
                         Text(
-                            "Index %.2f · gesamt ${s.geplant + s.historisch} (geplant ${s.geplant}, Historie ${s.historisch}) · ${s.monateDabei} Mon.",
-                            style = MaterialTheme.typography.labelSmall
+                            "gesamt ${s.geplant + s.historisch} · geplant ${s.geplant} · Historie ${s.historisch} · ${s.monateDabei} Monate",
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1
+                        )
+                        LinearProgressIndicator(
+                            progress = { (s.belastungsIndex / maxIndex).toFloat() },
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
                         )
                     }
-                    LinearProgressIndicator(
-                        progress = { (s.belastungsIndex / maxIndex).toFloat() },
-                        modifier = Modifier.fillMaxWidth()
-                    )
                 }
             }
         }
