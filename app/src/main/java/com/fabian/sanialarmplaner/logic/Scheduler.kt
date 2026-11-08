@@ -221,11 +221,25 @@ fun generiereDienstplan(
 ): PlanErgebnis {
     if (aufstellung.aktivePaare.isEmpty()) return PlanErgebnis()
 
+    // Vorbelegungen vorab validieren: widerspruechliche Vorbelegungen (z.B.
+    // zwei Teams in derselben Woche) machen die Suche unloesbar -> sofort abbrechen
+    if (config.regeln.maxEineSchichtProWoche) {
+        val proWoche = mutableMapOf<Int, MutableSet<String>>()
+        for ((key, d) in vorbelegungen) {
+            val set = proWoche.getOrPut(key.first) { mutableSetOf() }
+            if (!set.add(d.paar)) return PlanErgebnis()   // gleiches Team 2x in einer Woche
+        }
+    }
+
     val streng = config.maxVersuche == 0 || config.modus == "streng"
     val stufen = if (streng) listOf(0) else listOf(0, 1, 2)
     for (entspannung in stufen) {
-        val versuchLimit = if (config.seed != 0L) 50 else config.maxVersuche
+        // Vorbelegungen veraendern die Loesbarkeit; mit hohem Versuchslimit +
+        // Zeitdeckel bleibt die Suche bei schwierigen Vorbelegungen responsiv.
+        val versuchLimit = if (config.seed != 0L) 50 else config.maxVersuche.coerceAtMost(60)
+        val deadline = System.currentTimeMillis() + 10_000L   // max 10 s pro Stufe
         for (versuch in 1..versuchLimit) {
+            if (System.currentTimeMillis() > deadline) break
             val seed = if (config.seed != 0L) config.seed + entspannung * 1_000_000L + versuch
                        else Random(System.nanoTime()).nextLong()
             val plan = versucheMitSeed(
@@ -255,10 +269,15 @@ private fun versucheMitSeed(
     val alleTage = Wochen.alle.flatMap { w -> Wochentage.dienst.map { Schluessel(w, it) } }
     val dienstplan = mutableMapOf<Schluessel, Dienst>()
     dienstplan.putAll(vorbelegungen)
+    // 6 s Budget pro Versuch: verhindert Endlos-Rechnen bei widerspruechlichen
+    // Vorbelegungen (das war der eingefrorene "rechnet..."-Button)
+    val deadline = System.currentTimeMillis() + 6_000L
 
     // wie im Python-Original: vollständige rekursive Suche über alle Optionen
+    // mit Zeitdeckel: nach 'budgetMs' Millisekunden wird dieser Versuch abgebrochen
     fun suchen(index: Int, random: Random, tiefe: Int): Map<Schluessel, Dienst>? {
         if (tiefe > 200) return null   // Schutz vor Extremfällen
+        if (System.currentTimeMillis() > deadline) return null
         var i = index
         while (i < alleTage.size && alleTage[i] in dienstplan) i++
 
