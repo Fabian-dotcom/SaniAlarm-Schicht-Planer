@@ -11,6 +11,17 @@ import java.time.LocalDate
 import java.time.YearMonth
 
 /** UI-Darstellung eines Schicht-Eintrags im Plan. */
+/** Vorschau eines Imports vor der Uebernahme. */
+data class ImportVorschau(
+    val importPersonen: Int,
+    val neuePersonen: List<String>,
+    val aktualisiertePersonen: List<String>,
+    val dubletten: List<String>,
+    val neueHistorie: Int,
+    val neueSperrtage: Int,
+    val ziel: SaniteamDatei,
+)
+
 data class PlanEintrag(
     val woche: Int,
     val tag: String,
@@ -99,6 +110,105 @@ class PlanerViewModel(private val store: ConfigStore) {
         configAusDatei()
         return true
     }
+
+    /** Von MainActivity aufgerufen: .saniteam-Datei aus Intent oeffnen. */
+    fun pruefeOeffnungAnfordern(text: String) {
+        val vorschau = analyseImport(text) ?: run {
+            // Ggf. eine historie-only- oder defekte Datei: nur melden
+            _oeffnungsMeldung = "Datei konnte nicht als .saniteam gelesen werden."
+            return
+        }
+        _oeffnungsVorschau = vorschau
+    }
+
+    var _oeffnungsVorschau by mutableStateOf<ImportVorschau?>(null)
+        private set
+    var _oeffnungsMeldung by mutableStateOf<String?>(null)
+        private set
+
+    fun schliesseOeffnungsDialog() {
+        _oeffnungsVorschau = null
+        _oeffnungsMeldung = null
+    }
+
+    // ------------------------------------------------------------------
+    // IMPORT MIT VORSCHAU + ZUSAMMENFUEHREN (Dubletten-Filter)
+    // ------------------------------------------------------------------
+
+    /**
+     * Analysiert eine importierte Datei, OHNE sie zu uebernehmen.
+     * Liefert Vorschau-Infos und die gemergte (deduplizierte) Ziel-Datei.
+     */
+    fun analyseImport(text: String): ImportVorschau? {
+        val import = speicher.deserialisieren(text) ?: return null
+        val vorhanden = state.datei.personen.map { normalisiereName(it.vollerName()) }.toSet()
+
+        val neue = mutableListOf<Person>()
+        val aktualisiert = mutableListOf<String>()
+        val dubletten = mutableListOf<String>()
+        for (p in import.personen) {
+            val key = normalisiereName(p.vollerName())
+            when {
+                key !in vorhanden -> neue.add(p)
+                else -> {
+                    // gleicher Name: nur uebernehmen, wenn Import- Eintrag mehr Infos hat
+                    val alt = state.datei.personen.first {
+                        normalisiereName(it.vollerName()) == key
+                    }
+                    if (istReicher(p, alt)) aktualisiert.add(p.vollerName())
+                    else dubletten.add(p.vollerName())
+                }
+            }
+        }
+
+        // Gemergte Datei erzeugen
+        val gemergtePersonen = state.datei.personen + neue
+        val gemergteEinstellung = mergeEinstellung(state.datei.einstellung, import.einstellung)
+        val gemergteHistorie = (state.datei.historie + import.historie)
+            .distinctBy { it.datum }
+
+        val ziel = SaniteamDatei(
+            formatVersion = maxOf(state.datei.formatVersion, import.formatVersion),
+            personen = gemergtePersonen,
+            einstellung = gemergteEinstellung,
+            historie = gemergteHistorie,
+        )
+        return ImportVorschau(
+            importPersonen = import.personen.size,
+            neuePersonen = neue.map { it.vollerName() },
+            aktualisiertePersonen = aktualisiert,
+            dubletten = dubletten,
+            neueHistorie = import.historie.size,
+            neueSperrtage = import.einstellung.teamSperrtage.size,
+            ziel = ziel,
+        )
+    }
+
+    fun uebernehmeImport(vorschau: ImportVorschau) {
+        state = state.copy(datei = vorschau.ziel)
+        configAusDatei()
+    }
+
+    private fun normalisiereName(name: String): String =
+        name.lowercase().replace(" ", "").replace(".", "")
+
+    /** true, wenn 'neu' mehr ausgefuellte Felder hat als 'alt'. */
+    private fun istReicher(neu: Person, alt: Person): Boolean {
+        fun score(p: Person): Int = listOf(
+            p.nachname, p.klasse, p.geschlecht, p.bevorzugterPartner,
+            p.seit, p.telefon, p.email, p.anmerkung
+        ).count { it.isNotBlank() }
+        return score(neu) > score(alt)
+    }
+
+    private fun mergeEinstellung(alt: PlanEinstellung, neu: PlanEinstellung): PlanEinstellung = alt.copy(
+        springerNamen = (alt.springerNamen + neu.springerNamen).distinct(),
+        praeferenzen = alt.praeferenzen + neu.praeferenzen,
+        teamSperrtage = alt.teamSperrtage + neu.teamSperrtage,
+        personSperrtage = alt.personSperrtage + neu.personSperrtage,
+        personMaxEinsaetze = alt.personMaxEinsaetze + neu.personMaxEinsaetze,
+        regeln = neu.regeln,   // Regeln: Import gewinnt (bewusst)
+    )
 
     // ------------------------------------------------------------------
     // PLANUNG
