@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      name="description"
+      content="Offline-Beitrittsformular der SaniAlarm-Gruppe. Deine Angaben werden nicht an einen Server übertragen."
+    />
+    <title>Beitritt – SaniAlarm</title>
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <p class="eyebrow">SaniAlarm · Beitritt</p>
+        <h1>Schön, dass du dabei sein möchtest.</h1>
+        <p class="intro">
+          Fülle das Formular aus und zeige den fertigen QR-Code anschließend der
+          Gruppenleitung.
+        </p>
+      </header>
+
+      <section id="unavailable" class="card notice" hidden>
+        <h2>Einladung fehlt</h2>
+        <p>Öffne diese Seite über den Einladungs-QR-Code deiner Gruppenleitung.</p>
+      </section>
+
+      <form id="form" class="card form" autocomplete="off" hidden>
+        <label>
+          Vorname <span aria-hidden="true">*</span>
+          <input name="givenName" required maxlength="80" autocomplete="given-name" />
+        </label>
+        <label>
+          Nachname
+          <input name="familyName" maxlength="100" autocomplete="family-name" />
+        </label>
+        <label>
+          Klasse / Gruppe
+          <input name="group" maxlength="80" autocomplete="off" />
+        </label>
+        <label>
+          Telefon <span class="optional">(optional)</span>
+          <input name="phone" type="tel" maxlength="40" autocomplete="tel" />
+        </label>
+        <label>
+          E-Mail <span class="optional">(optional)</span>
+          <input name="email" type="email" maxlength="120" autocomplete="email" />
+        </label>
+
+        <div class="privacy">
+          <h2>Was mit deinen Angaben passiert</h2>
+          <p>
+            Die Angaben werden nur auf diesem Gerät verarbeitet und mit dem
+            Schlüssel des Einladungslinks verschlüsselt. Es gibt keinen Versand
+            an einen Server. Zeige den Antwort-QR-Code trotzdem nur der
+            Gruppenleitung.
+          </p>
+          <label class="consent">
+            <input id="consent" type="checkbox" required />
+            Ich habe verstanden, dass der Antwortcode verschlüsselt ist, aber
+            keine Identität bestätigt.
+          </label>
+        </div>
+
+        <button id="create" type="submit">Antwort-QR-Code erstellen</button>
+        <p id="error" class="error" role="alert" hidden></p>
+      </form>
+
+      <section id="result" class="card result" aria-live="polite" hidden>
+        <h2>Dein Antwortcode</h2>
+        <p>
+          Zeige diesen Code der Gruppenleitung. Sie scannt ihn in der SaniAlarm-App
+          und kann deine Angaben vor dem Speichern prüfen.
+        </p>
+        <canvas id="qr" aria-label="Antwort-QR-Code"></canvas>
+        <button id="reset" class="secondary" type="button">Angaben löschen</button>
+      </section>
+
+      <footer>
+        <p>Keine Registrierung, kein Tracking und keine automatische Übertragung.</p>
+      </footer>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

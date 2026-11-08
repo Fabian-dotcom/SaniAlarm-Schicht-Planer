@@ -25,11 +25,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.fabian.sanialarmplaner.data.Person
 import com.fabian.sanialarmplaner.data.BeitrittQrDaten
+import com.fabian.sanialarmplaner.data.STANDARD_BEITRITT_WEBSITE_URL
+import com.fabian.sanialarmplaner.data.beitrittEinladungsUrl
 import com.fabian.sanialarmplaner.data.dekodiereBeitritt
+import com.fabian.sanialarmplaner.data.dekodiereVerschluesseltenBeitritt
+import com.fabian.sanialarmplaner.data.generiereBeitrittSchluessel
 import com.fabian.sanialarmplaner.data.kodiereBeitritt
 import com.fabian.sanialarmplaner.data.vollerName
 import com.fabian.sanialarmplaner.viewmodel.PlanerViewModel
@@ -44,9 +49,21 @@ private enum class BeitrittAnsicht { START, EINLADUNG, FORMULAR, ANFRAGE, BESTAE
 
 @Composable
 fun BeitrittQrDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
+    val context = LocalContext.current
+    val preferences = remember {
+        context.getSharedPreferences("sanialarm_config", android.content.Context.MODE_PRIVATE)
+    }
     var ansicht by remember { mutableStateOf(BeitrittAnsicht.START) }
     var code by remember { mutableStateOf<String?>(null) }
+    var geheimnis by remember { mutableStateOf("") }
     var person by remember { mutableStateOf<BeitrittQrDaten?>(null) }
+    var websiteUrl by remember {
+        mutableStateOf(
+            preferences.getString("beitritt_web_url", null)
+                ?.takeIf(String::isNotBlank)
+                ?: STANDARD_BEITRITT_WEBSITE_URL,
+        )
+    }
     var vorname by remember { mutableStateOf("") }
     var nachname by remember { mutableStateOf("") }
     var klasse by remember { mutableStateOf("") }
@@ -58,7 +75,9 @@ fun BeitrittQrDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
         val contents = result.contents
         if (contents != null) {
             try {
-                when (val daten = dekodiereBeitritt(contents)) {
+                val daten = dekodiereVerschluesseltenBeitritt(contents, geheimnis)
+                    ?: if (geheimnis.isBlank()) dekodiereBeitritt(contents) else null
+                when (daten) {
                     null -> meldung = "Der QR-Code ist kein gültiger SaniAlarm-Beitrittscode."
                     else -> when (daten.typ) {
                         "einladung" -> {
@@ -77,6 +96,8 @@ fun BeitrittQrDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
                         }
                     }
                 }
+            } catch (_: java.security.GeneralSecurityException) {
+                meldung = "Der Antwortcode passt nicht zu dieser Einladung oder wurde verändert."
             } catch (_: IllegalArgumentException) {
                 meldung = "Der QR-Code enthält ungültige Daten."
             } catch (_: SerializationException) {
@@ -95,22 +116,39 @@ fun BeitrittQrDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
             ) {
                 when (ansicht) {
                     BeitrittAnsicht.START -> {
-                        Text("Die Anmeldung funktioniert vollständig offline mit QR-Codes.")
+                        Text("Die neue Person braucht die SaniAlarm-App nicht: Sie scannt den Einladungs-QR-Code mit der normalen Kamera und öffnet das Formular im Browser.")
+                        OutlinedTextField(
+                            value = websiteUrl,
+                            onValueChange = { websiteUrl = it.take(300) },
+                            label = { Text("HTTPS-Adresse der Beitritts-Website") },
+                            placeholder = { Text(STANDARD_BEITRITT_WEBSITE_URL) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                         Button(
                             onClick = {
-                                code = kodiereBeitritt(BeitrittQrDaten(typ = "einladung"))
-                                ansicht = BeitrittAnsicht.EINLADUNG
-                                meldung = null
+                                val neuesGeheimnis = generiereBeitrittSchluessel()
+                                val einladung = beitrittEinladungsUrl(websiteUrl, neuesGeheimnis)
+                                if (einladung == null) {
+                                    meldung = "Bitte eine gültige HTTPS-Adresse ohne Zugangsdaten, Query oder Fragment eingeben."
+                                } else {
+                                    preferences.edit().putString("beitritt_web_url", websiteUrl.trim()).apply()
+                                    geheimnis = neuesGeheimnis
+                                    code = einladung
+                                    ansicht = BeitrittAnsicht.EINLADUNG
+                                    meldung = null
+                                }
                             },
+                            enabled = websiteUrl.isNotBlank(),
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Einladungscode anzeigen") }
+                        ) { Text("Einladungs-QR-Code anzeigen") }
                         OutlinedButton(
                             onClick = { scanner.launch(scanOptionen()) },
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("QR-Code scannen") }
                     }
                     BeitrittAnsicht.EINLADUNG -> {
-                        Text("Die neue Person scannt diesen Code in der SaniAlarm-App und füllt dort das Offline-Formular aus.")
+                        Text("Die neue Person scannt diesen Code mit der normalen Kamera-App. Der Link öffnet die Beitrittsseite. Ein zufälliger Schlüssel im Link verschlüsselt den Antwortcode; die Angaben stehen nicht lesbar im QR.")
                         code?.let { QrBild(it, "Beitrittseinladung") }
                         OutlinedButton(
                             onClick = { scanner.launch(scanOptionen()) },
@@ -126,7 +164,7 @@ fun BeitrittQrDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
                         OutlinedTextField(email, { email = it.take(120) }, label = { Text("E-Mail (optional)") }, modifier = Modifier.fillMaxWidth())
                     }
                     BeitrittAnsicht.ANFRAGE -> {
-                        Text("Antwortcode nur der AG-Leitung zeigen. Name und Kontaktdaten sind im Code lesbar.")
+                        Text("Antwortcode nur der Gruppenleitung zeigen. Die Angaben sind verschlüsselt und lassen sich nur mit dem Schlüssel dieser Einladung entschlüsseln.")
                         code?.let { QrBild(it, "Beitrittsanfrage") }
                     }
                     BeitrittAnsicht.BESTAETIGUNG -> {
@@ -190,6 +228,7 @@ fun BeitrittQrDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
                     TextButton(onClick = {
                         ansicht = BeitrittAnsicht.START
                         code = null
+                        geheimnis = ""
                         person = null
                         meldung = null
                     }) { Text("Zurück") }
