@@ -1,0 +1,79 @@
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>if "Windows_NT" == "Windows_NT" setlocal
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>set DIRNAME=C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner\ 
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>if "C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner\" == "" set DIRNAME=. 
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>set APP_BASE_NAME=gradlew 
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>set APP_HOME=C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner\ 
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>for %i in ("C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner\") do set APP_HOME=%~fi 
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>set APP_HOME=C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner\ 
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m" 
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>if defined JAVA_HOME goto findJavaFromJavaHome 
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>set JAVA_HOME=C:\Program Files\Android\Android Studio\jbr 
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>set JAVA_EXE=C:\Program Files\Android\Android Studio\jbr/bin/java.exe 
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>if exist "C:\Program Files\Android\Android Studio\jbr/bin/java.exe" goto execute 
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>set CLASSPATH=C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner\\gradle\wrapper\gradle-wrapper.jar 
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>"C:\Program Files\Android\Android Studio\jbr/bin/java.exe" "-Xmx64m" "-Xms64m"   "-Dorg.gradle.appname=gradlew" -classpath "C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner\\gradle\wrapper\gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain :app:assembleDebug --console=plain 
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.11.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+> Task :app:compileDebugKotlin UP-TO-DATE
+> Task :app:javaPreCompileDebug UP-TO-DATE
+> Task :app:compileDebugJavaWithJavac NO-SOURCE
+> Task :app:mergeDebugShaders UP-TO-DATE
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets UP-TO-DATE
+> Task :app:compressDebugAssets UP-TO-DATE
+> Task :app:processDebugJavaRes UP-TO-DATE
+> Task :app:checkDebugDuplicateClasses UP-TO-DATE
+> Task :app:desugarDebugFileDependencies UP-TO-DATE
+> Task :app:mergeExtDexDebug UP-TO-DATE
+> Task :app:mergeLibDexDebug UP-TO-DATE
+> Task :app:mergeDebugJavaResource
+> Task :app:dexBuilderDebug
+> Task :app:mergeDebugJniLibFolders UP-TO-DATE
+> Task :app:mergeDebugNativeLibs UP-TO-DATE
+> Task :app:stripDebugDebugSymbols UP-TO-DATE
+> Task :app:validateSigningDebug UP-TO-DATE
+> Task :app:writeDebugAppMetadata UP-TO-DATE
+> Task :app:writeDebugSigningConfigVersions UP-TO-DATE
+> Task :app:mergeProjectDexDebug
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect
+> Task :app:assembleDebug
+
+BUILD SUCCESSFUL in 12s
+34 actionable tasks: 5 executed, 29 up-to-date
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>if "0" == "0" goto mainEnd 
+
+C:\Users\fabia\AndroidStudioProjects\SaniAlarmPlaner>if "Windows_NT" == "Windows_NT" endlocal
