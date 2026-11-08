@@ -125,7 +125,7 @@ class SchedulerTest {
     fun `entspannter Modus liefert eher einen Plan als strenger`() {
         // Forderndes, aber lösbares Szenario: 2 komplette Teams fallen aus
         val vieleKrank = setOf("Camilo", "Jonatan", "Monti", "Marlene", "Hilal")
-        val lockerCfg = config.copy(modus = "lockerer", maxVersuche = 100)
+        val lockerCfg = config.copy(modus = "lockerer", maxVersuche = 40)
         val strengCfg = config.copy(modus = "streng", maxVersuche = 0)
         val a = verarbeiteAufstellung(lockerCfg, vieleKrank)
         val resStreng = generiereDienstplan(strengCfg, a)
