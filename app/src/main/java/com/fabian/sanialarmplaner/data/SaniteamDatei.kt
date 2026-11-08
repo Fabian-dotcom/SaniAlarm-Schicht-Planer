@@ -69,6 +69,51 @@ data class HistorischeSchicht(
 fun Person.vollerName(): String =
     if (nachname.isBlank()) vorname else "${vorname} ${nachname}".trim()
 
+/**
+ * Eindeutiger Kurzname: "Vorname N." bzw. bei doppelten Anfangsbuchstaben
+ * "Vorname Ab." / "Vorname Abc." - long-enough um Personen zu unterscheiden.
+ */
+fun kurzeNamen(personen: List<Person>): Map<String, String> {
+    val aktiv = personen.filter { it.aktiv }
+    val result = mutableMapOf<String, String>()
+
+    fun nachnameInitial(p: Person, laenge: Int): String {
+        if (p.nachname.isBlank()) return ""
+        // Mehrfachnamen ("Meyer Schmidt"): von JEDEM Teil die ersten Buchstaben
+        val teile = p.nachname.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        val teileStr = teile.joinToString("") { teil ->
+            teil.take(laenge).replaceFirstChar { it.uppercase() }
+        }
+        return if (teile.size > 1) "$teileStr." else "${teileStr.take(laenge).replaceFirstChar { it.uppercase() }}."
+    }
+
+    // Laenge 1, 2, 3 ... erhoehen, bis eindeutig
+    val gruppiert = aktiv.groupBy { it.vorname }
+    for ((vorname, gruppe) in gruppiert) {
+        if (gruppe.size == 1) {
+            val p = gruppe.first()
+            result[p.vollerName()] = if (p.nachname.isBlank()) vorname
+                else "$vorname ${nachnameInitial(p, 1)}"
+        } else {
+            for (laenge in 1..10) {
+                val kuerzel = gruppe.map { it to nachnameInitial(it, laenge) }
+                val eindeutig = kuerzel.groupBy { it.second }.all { it.value.size == 1 }
+                if (eindeutig) {
+                    kuerzel.forEach { (p, k) ->
+                        result[p.vollerName()] = if (k.isBlank()) vorname else "$vorname $k"
+                    }
+                    break
+                }
+            }
+        }
+        // Fallback falls nicht eindeutig
+        gruppe.forEach { p ->
+            if (result[p.vollerName()] == null) result[p.vollerName()] = p.vollerName()
+        }
+    }
+    return result
+}
+
 /** Teams abgeleitet aus bevorzugtemPartner + Klasse (heuristisch, bearbeitbar). */
 fun SaniteamDatei.ableiteTeams(): Map<String, List<String>> {
     val aktiv = personen.filter { it.aktiv }
@@ -120,9 +165,12 @@ fun SaniteamDatei.ableiteTeams(): Map<String, List<String>> {
     return teams
 }
 
-/** Springer-Pool: ausgebildete Personen ohne festes Team + explizit genannte. */
+/** Springer-Pool: ausgebildete Personen ohne festes Team + explizit genannte.
+ *  Explizit genannte Namen nur, wenn sie tatsaechlich in der Kartei existieren
+ *  (filtert veraltete/hartcodierte Kurz-Namen raus). */
 fun SaniteamDatei.ableiteSpringer(): List<String> {
-    val explizit = einstellung.springerNamen
+    val bekannte = personen.filter { it.aktiv }.map { it.vollerName() }.toSet()
+    val explizit = einstellung.springerNamen.filter { it in bekannte }
     val teams = ableiteTeams()
     val inTeam = teams.values.flatten().toSet()
     val ausgebildetOhneTeam = personen

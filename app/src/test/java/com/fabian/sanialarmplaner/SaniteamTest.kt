@@ -55,7 +55,8 @@ class SaniteamTest {
             einstellung = PlanEinstellung(springerNamen = listOf("Doro")),
         )
         val springer = datei.ableiteSpringer()
-        assertTrue("Doro" in springer)
+        // Doro wird gefiltert: nicht in der Kartei (verhindert veraltete/hartcodierte Namen)
+        assertFalse("Doro" in springer)
         assertTrue("Clara" in springer)
         assertFalse("Anna" in springer)   // ist im Team
     }

@@ -92,14 +92,15 @@ class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamSto
         configAusDatei()
     }
 
-    /** Leitet AppConfig (Teams/Springer/Präferenzen/Regeln) aus der Kartei ab. */
+    /** Baut die AppConfig VOLLSTAENDIG aus der Kartei neu auf - keine Reste
+     *  von aenderungen (z.B. alte Namen ohne Nachnamen) bleiben erhalten. */
     private fun configAusDatei() {
         val d = state.datei
         val teams = d.ableiteTeams()
         state = state.copy(
-            config = state.config.copy(
-                teams = if (teams.isEmpty()) state.config.teams else teams,
-                springer = if (d.personen.isEmpty()) state.config.springer else d.ableiteSpringer(),
+            config = AppConfig(
+                teams = teams,
+                springer = d.ableiteSpringer(),
                 praeferenzen = d.einstellung.praeferenzen,
                 teamSperrtage = d.einstellung.teamSperrtage,
                 personSperrtage = d.einstellung.personSperrtage,
@@ -114,7 +115,23 @@ class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamSto
 
     fun updateConfig(transform: (AppConfig) -> AppConfig) {
         state = state.copy(config = transform(state.config))
-        store.speichern(state.config)
+        // Config-Aenderungen in die .saniteam-Einstellung zurueckschreiben und
+        // PERSISTIEREN (das fehlte: Settings waren nach Neustart weg)
+        val c = state.config
+        state = state.copy(datei = state.datei.copy(
+            einstellung = state.datei.einstellung.copy(
+                praeferenzen = c.praeferenzen,
+                teamSperrtage = c.teamSperrtage,
+                personSperrtage = c.personSperrtage,
+                personMaxEinsaetze = c.personMaxEinsaetze,
+                regeln = c.regeln,
+                modus = c.modus,
+                seed = c.seed,
+                maxVersuche = c.maxVersuche,
+            )
+        ))
+        saniteamSpeicherOrt?.speichern(state.datei)
+        store.speichern(c)
     }
 
     fun exportSaniteam(): String = speicher.serialisieren(state.datei)
@@ -360,6 +377,7 @@ class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamSto
         }
 
         val heute = LocalDate.now()
+        val kurzNamen = kurzeNamen(d.personen)
         return alle.map { name ->
             val p = d.personen.first { it.vollerName() == name }
             val monate = try {
@@ -376,7 +394,7 @@ class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamSto
             val faktor = if (p.ausbildungAbgeschlossen) 1.2 else 1.0
             val index = if (monate > 0) (gesamt * faktor) / monate else gesamt * faktor * 2.0
             PersonenStatistik(
-                name = name,
+                name = kurzNamen[name] ?: name,
                 geplant = geplant[name] ?: 0,
                 historisch = historisch[name] ?: 0,
                 monateDabei = monate,
