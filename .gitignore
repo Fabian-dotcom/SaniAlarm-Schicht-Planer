@@ -22,6 +22,9 @@ local.properties
 URSPRUNG/
 *.saniteam
 
+beitritt-website/node_modules/
+beitritt-website/dist/
+
 # Exporte / erstellte Plan-Dateien
 export/
 *.pdf

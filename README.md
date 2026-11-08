@@ -41,9 +41,19 @@ Alle personenbezogenen Daten (Namen, Klasse, Telefon) liegen in einer
 Diese Datei und der Ordner URSPRUNG/ mit den Original-Daten sind in der
 .gitignore ausgeschlossen und gehoeren nicht in ein Repository.
 
-Beitritts-QR-Codes enthalten die eingegebenen Angaben direkt und sind fuer
-Personen lesbar, die den Code scannen. Sie werden nicht an einen Server
-uebertragen und sollten nur der AG-Leitung gezeigt werden.
+Der Einladungs-QR-Code enthaelt einen zufaelligen, einmaligen Schluessel im
+URL-Fragment. Die Beitrittswebsite verschluesselt die Angaben lokal mit
+AES-256-GCM; der Antwort-QR enthaelt keine lesbaren Personendaten. Die App muss
+bis zum Scannen des Antwortcodes geoeffnet bleiben, da sie den Schluessel nur
+fuer diesen Einladungslauf im Arbeitsspeicher haelt. Der Link authentifiziert
+keine Person; die Gruppenleitung muss Angaben vor dem Speichern pruefen.
+
+Das Web-Formular fuer neue Mitglieder liegt im Ordner `beitritt-website/` und
+ist unter https://sani-alarm-planer.netlify.app/ erreichbar. Diese Adresse ist
+in der App voreingestellt und kann bei Bedarf angepasst werden. Das Formular verschluesselt den
+Antwort-QR lokal im Browser mit AES-256-GCM; nur die Gruppenleitung scannt und
+bestaetigt ihn in der App. Technische Seitenaufrufdaten koennen beim
+Hosting-Anbieter anfallen, aber keine Formulardaten werden an diesen uebermittelt.
 
 ## Build
 
