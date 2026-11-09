@@ -35,3 +35,5 @@ c*.txt
 t*.txt
 b*.txt
 *.log
+.idea/*
+!.idea/codeStyles
