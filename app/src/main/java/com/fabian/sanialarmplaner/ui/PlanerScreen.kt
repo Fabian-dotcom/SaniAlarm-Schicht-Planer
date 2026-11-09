@@ -1,6 +1,7 @@
 package com.fabian.sanialarmplaner.ui
 
 import android.content.Intent
+import android.net.Uri
 import android.print.PrintAttributes
 import android.print.PrintManager
 import android.webkit.WebView
@@ -579,6 +580,7 @@ fun PlanZeile(e: PlanEintrag) {
 @Composable
 fun AusfaelleTab(vm: PlanerViewModel) {
     val state = vm.state
+    val context = LocalContext.current
     val allePersonen = (state.config.teams.values.flatten() + state.config.springer).sorted()
     var dialogPerson by remember { mutableStateOf<String?>(null) }
     var vertretungPerson by remember { mutableStateOf<String?>(null) }
@@ -614,6 +616,20 @@ fun AusfaelleTab(vm: PlanerViewModel) {
                         }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        // Notfall-Kontakte (#41): Telefon/E-Mail direkt anrufen/mailen
+                        val personObj = state.datei.personen.firstOrNull { it.vollerName() == person }
+                        if (!personObj?.telefon.isNullOrBlank()) {
+                            TextButton(onClick = {
+                                context.startActivity(Intent(Intent.ACTION_DIAL,
+                                    Uri.parse("tel:${personObj!!.telefon}")))
+                            }) { Text("Anrufen") }
+                        }
+                        if (!personObj?.email.isNullOrBlank()) {
+                            TextButton(onClick = {
+                                context.startActivity(Intent(Intent.ACTION_SENDTO,
+                                    Uri.parse("mailto:${personObj!!.email}")))
+                            }) { Text("Mail") }
+                        }
                         TextButton(onClick = { dialogPerson = person }) { Text("Tage…") }
                         TextButton(
                             enabled = state.plan.any { person in it.mitglieder },
