@@ -658,6 +658,7 @@ fun AusfaelleTab(vm: PlanerViewModel) {
     val allePersonen = (state.config.teams.values.flatten() + state.config.springer).sorted()
     var dialogPerson by remember { mutableStateOf<String?>(null) }
     var vertretungPerson by remember { mutableStateOf<String?>(null) }
+    var tauschPerson by remember { mutableStateOf<String?>(null) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)
@@ -705,6 +706,10 @@ fun AusfaelleTab(vm: PlanerViewModel) {
                             }) { Text("Mail") }
                         }
                         TextButton(onClick = { dialogPerson = person }) { Text("Tage…") }
+                        TextButton(
+                            enabled = state.plan.any { person in it.mitglieder },
+                            onClick = { tauschPerson = person },
+                        ) { Text("Tausch") }
                         TextButton(
                             enabled = state.plan.any { person in it.mitglieder },
                             onClick = { vertretungPerson = person },
@@ -755,6 +760,80 @@ fun AusfaelleTab(vm: PlanerViewModel) {
     vertretungPerson?.let { person ->
         VertretungDialog(vm, person) { vertretungPerson = null }
     }
+
+    tauschPerson?.let { person ->
+        TauschDialog(vm, person) { tauschPerson = null }
+    }
+}
+
+@Composable
+private fun TauschDialog(vm: PlanerViewModel, person: String, onSchliessen: () -> Unit) {
+    val dienste = vm.vertretungsDienste(person)
+    var meinDienst by remember(person) {
+        mutableStateOf(dienste.firstOrNull()?.let { it.woche to it.tag })
+    }
+    var partnerDienst by remember(person) { mutableStateOf<Pair<Int, String>?>(null) }
+    var meldung by remember { mutableStateOf<String?>(null) }
+
+    val dienstA = dienste.firstOrNull { (it.woche to it.tag) == meinDienst }
+    val dienstB = partnerDienst?.let { (w, t) -> vm.state.plan.firstOrNull { it.woche == w && it.tag == t } }
+    val partner = dienstB?.mitglieder?.firstOrNull { it != person }
+
+    AlertDialog(
+        onDismissRequest = onSchliessen,
+        title = { Text("Schicht tauschen: $person") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (dienste.isEmpty()) {
+                    Text("Diese Person ist im aktuellen Plan nicht eingeteilt.")
+                } else {
+                    Text("1. Meine Schicht:", style = MaterialTheme.typography.bodySmall)
+                    dienste.forEach { e ->
+                        FilterChip(
+                            selected = meinDienst == (e.woche to e.tag),
+                            onClick = { meinDienst = e.woche to e.tag },
+                            label = { Text("W${e.woche} · ${e.tag}") },
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text("2. Schicht des Tauschpartners:", style = MaterialTheme.typography.bodySmall)
+                    vm.state.plan.filter { it.hatDienst && person !in it.mitglieder }.forEach { e ->
+                        FilterChip(
+                            selected = partnerDienst == (e.woche to e.tag),
+                            onClick = { partnerDienst = e.woche to e.tag },
+                            label = { Text("W${e.woche} · ${e.tag} (${e.mitglieder.joinToString()})") },
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    if (partner != null && dienstA != null && dienstB != null) {
+                        val probleme = vm.pruefeTausch(dienstA, dienstB, person, partner)
+                        if (probleme.isEmpty()) {
+                            Text("✓ Tausch mit $partner ist regelkonform.",
+                                color = MaterialTheme.colorScheme.primary)
+                        } else {
+                            Text("Konflikte:", color = MaterialTheme.colorScheme.error)
+                            probleme.forEach { Text("• $it", color = MaterialTheme.colorScheme.error) }
+                        }
+                    }
+                    meldung?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+        },
+        confirmButton = {
+            if (dienstA != null && dienstB != null && partner != null) {
+                Button(onClick = {
+                    meldung = if (vm.fuehreTauschAus(dienstA, dienstB, person, partner)) {
+                        onSchliessen()
+                        "Tausch durchgeführt."
+                    } else "Tausch verletzt Regeln."
+                }) { Text("Tauschen") }
+            }
+        },
+        dismissButton = { TextButton(onClick = onSchliessen) { Text("Abbrechen") } },
+    )
 }
 
 @Composable

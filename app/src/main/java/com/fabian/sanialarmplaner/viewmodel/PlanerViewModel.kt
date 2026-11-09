@@ -594,6 +594,66 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
     }
 
     // ------------------------------------------------------------------
+    // TAUSCHBOERSE (#27)
+    // ------------------------------------------------------------------
+
+    /**
+     * Prueft, ob der Tausch von [personA] (aus [dienstA]) mit [personB]
+     * (aus [dienstB]) alle aktiven Regeln erfuellt. Liefert Verstoss-Liste.
+     */
+    fun pruefeTausch(dienstA: PlanEintrag, dienstB: PlanEintrag, personA: String, personB: String): List<String> {
+        if (personA !in dienstA.mitglieder || personB !in dienstB.mitglieder) {
+            return listOf("Personen gehoeren nicht zu den gewaehlten Diensten")
+        }
+        if (personA == personB) return listOf("Gleiche Person kann nicht mit sich selbst tauschen")
+
+        // Neuen Plan simulieren: A kriegt B's Slot, B kriegt A's Slot
+        val neuerPlan = state.plan.map { e ->
+            when {
+                e.woche == dienstA.woche && e.tag == dienstA.tag ->
+                    e.copy(mitglieder = (e.mitglieder - personA) + personB)
+                e.woche == dienstB.woche && e.tag == dienstB.tag ->
+                    e.copy(mitglieder = (e.mitglieder - personB) + personA)
+                else -> e
+            }
+        }
+        val aufstellung = verarbeiteAufstellung(state.config, state.kranke, state.abwesenheiten)
+        val neueDienste = neuerPlan.filter { it.hatDienst }
+            .associate { (it.woche to it.tag) to Dienst(it.paar!!, it.springer) }
+
+        // Ausbildungs-Regel pruefen: beide Teams muessen mind. 1 ausgebildete Person haben
+        val probleme = mutableListOf<String>()
+        for (e in neuerPlan.filter { it.hatDienst }) {
+            val hatAusbildung = e.mitglieder.any { m ->
+                state.datei.personen.firstOrNull { it.vollerName() == m }?.ausbildungAbgeschlossen == true
+            }
+            if (!hatAusbildung) {
+                probleme += "W${e.woche}/${e.tag}: Kein ausgebildetes Team-Mitglied mehr (Regel: mind. 1)"
+            }
+        }
+
+        probleme += validiereDienstplan(state.config, aufstellung, neueDienste, state.abwesenheiten)
+        return probleme.distinct()
+    }
+
+    /** Fuehrt einen gueltigen Tausch aus. */
+    fun fuehreTauschAus(dienstA: PlanEintrag, dienstB: PlanEintrag, personA: String, personB: String): Boolean {
+        if (pruefeTausch(dienstA, dienstB, personA, personB).isNotEmpty()) return false
+        state = state.copy(
+            plan = state.plan.map { e ->
+                when {
+                    e.woche == dienstA.woche && e.tag == dienstA.tag ->
+                        e.copy(mitglieder = (e.mitglieder - personA) + personB)
+                    e.woche == dienstB.woche && e.tag == dienstB.tag ->
+                        e.copy(mitglieder = (e.mitglieder - personB) + personA)
+                    else -> e
+                }
+            }
+        )
+        return true
+    }
+
+    // ------------------------------------------------------------------
     // SCHULTERMINE & KALENDER (#53-55)
     // ------------------------------------------------------------------
 
