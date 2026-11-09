@@ -750,6 +750,23 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
         }
     }
 
+    /**
+     * Erklärbare Planung (#44): Schulische Belastung je Person im Planungsmonat
+     * (Anzahl Schultermine, an denen die Person betroffen ist) + Termine.
+     */
+    fun schulischeBelastung(): Map<String, Pair<Int, List<String>>> {
+        val result = mutableMapOf<String, Pair<Int, List<String>>>()
+        val analyse = tagesAnalyse(LocalDate.now().withDayOfMonth(1), LocalDate.now().plusMonths(1).withDayOfMonth(1))
+        for ((_, a) in analyse) {
+            val termineNamen = a.termine.map { it.titel }
+            for (p in a.betroffenePersonen) {
+                val alt = result[p] ?: (0 to emptyList<String>())
+                result[p] = (alt.first + 1) to (alt.second + termineNamen).distinct()
+            }
+        }
+        return result
+    }
+
     fun statistik(): List<PersonenStatistik> {
         val d = state.datei
         val alle = d.personen.filter { it.aktiv }.map { it.vollerName() }.toSet()

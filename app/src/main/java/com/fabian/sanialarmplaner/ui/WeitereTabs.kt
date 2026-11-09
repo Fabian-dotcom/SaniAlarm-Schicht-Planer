@@ -382,6 +382,33 @@ fun StatistikTab(vm: PlanerViewModel) {
         }
 
         Spacer(Modifier.height(16.dp))
+        Text("Schulische Belastung (kommende 2 Monate)", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Anzahl Schultermine (Klassenarbeiten etc.), an denen die Person betroffen ist — wichtig für faire Planung rund um Belastungsphasen.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        val schulBelastung = vm.schulischeBelastung()
+        if (schulBelastung.isEmpty()) {
+            Text("Keine Schultermine eingetragen (Kalender-Tab).", style = MaterialTheme.typography.bodySmall)
+        } else {
+            schulBelastung.entries.sortedByDescending { it.value.first }.forEach { (name, pair) ->
+                val (anzahl, termine) = pair
+                Card(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                    Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(name, Modifier.weight(1f))
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("$anzahl Termin(e)", style = MaterialTheme.typography.titleSmall)
+                            if (termine.isNotEmpty()) {
+                                Text(termine.take(2).joinToString(", "), style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
         Text("Aktueller Plan", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             FilterChip(selected = zeigeVerlauf, onClick = { zeigeVerlauf = true }, label = { Text("Balken") })
