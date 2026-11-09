@@ -3,6 +3,7 @@ package com.fabian.sanialarmplaner.ui
 import android.content.Intent
 import android.net.Uri
 import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
 import android.print.PrintManager
 import android.webkit.WebView
 import androidx.compose.foundation.background
@@ -518,7 +519,7 @@ private fun DiensteTauschenDialog(vm: PlanerViewModel, onSchliessen: () -> Unit)
     )
 }
 
-/** PDF-Erzeugung ueber Android-Print-Framework (WebView -> "Als PDF speichern"). */
+/** PDF-Erzeugung: PDF wird direkt in den Cache gerendert und im Share-Sheet angeboten (#35). */
 fun teileAlsPdf(context: android.content.Context, planText: String) {
     val rows = planText.lines().filter { it.contains(":") }.joinToString("") { line ->
         val parts = line.split(":", limit = 2)
@@ -538,10 +539,48 @@ fun teileAlsPdf(context: android.content.Context, planText: String) {
     val webView = WebView(context)
     webView.webViewClient = object : android.webkit.WebViewClient() {
         override fun onPageFinished(view: WebView, url: String?) {
-            val printAdapter = view.createPrintDocumentAdapter("Dienstplan")
-            val printManager = context.getSystemService(android.content.Context.PRINT_SERVICE) as PrintManager
-            printManager.print("Dienstplan", printAdapter, PrintAttributes.Builder().build())
-            // Nutzer waehlt im Dialog "Als PDF speichern" und kann die Datei dann teilen
+            // WebView-Inhalt auf Bitmap rendern -> in PDF zeichnen -> Share-Sheet (#35)
+            view.postDelayed({
+                try {
+                    val breite = 794   // A4 bei 96 dpi
+                    val hoehe = view.contentHeight.toInt().coerceAtLeast(200) + 40
+                    val bitmap = android.graphics.Bitmap.createBitmap(breite, hoehe, android.graphics.Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(bitmap)
+                    view.draw(canvas)
+
+                    val pdf = android.graphics.pdf.PdfDocument()
+                    val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(breite, 1123, 1).create()  // A4
+                    val page = pdf.startPage(pageInfo)
+                    // Bitmap auf A4-Seite skalieren
+                    val scale = 1123f / hoehe
+                    page.canvas.save()
+                    page.canvas.scale(scale.coerceAtMost(1f), scale.coerceAtMost(1f))
+                    page.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                    page.canvas.restore()
+                    pdf.finishPage(page)
+
+                    val outDir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
+                    val outFile = java.io.File(outDir, "dienstplan.pdf")
+                    pdf.writeTo(outFile.outputStream())
+                    pdf.close()
+                    bitmap.recycle()
+
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        context, "${context.packageName}.fileprovider", outFile
+                    )
+                    val share = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/pdf"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(share, "Dienstplan-PDF teilen"))
+                } catch (_: Exception) {
+                    // Fallback: Print-Dialog
+                    val adapter = view.createPrintDocumentAdapter("Dienstplan")
+                    val pm = context.getSystemService(android.content.Context.PRINT_SERVICE) as PrintManager
+                    pm.print("Dienstplan", adapter, PrintAttributes.Builder().build())
+                }
+            }, 400)
         }
     }
     webView.loadData(html, "text/html; charset=utf-8", "UTF-8")
