@@ -167,6 +167,34 @@ fun HomeTab(vm: PlanerViewModel, gotoTab: (Int) -> Unit) {
 
         Spacer(Modifier.height(20.dp))
 
+        // Statistik-Vorschau auf dem Start-Screen (#46)
+        val stats = vm.statistik()
+        if (stats.isNotEmpty()) {
+            IosSection("Statistik") {
+                val top = stats.take(3)
+                top.forEachIndexed { i, s ->
+                    if (i > 0) IosSeparator()
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(s.name, Modifier.weight(1f))
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("%.2f".format(s.belastungsIndex),
+                                style = MaterialTheme.typography.titleSmall)
+                            Text("${s.geplant + s.historisch} Einsätze · ${s.monateDabei} Mon.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                IosSeparator()
+                IosRow(icon = "📊", bg = iosPurple, titel = "Alle Statistiken",
+                    text = "Belastungsindex, Historie, Zeitraum", onClick = { gotoTab(5) })
+            }
+            Spacer(Modifier.height(20.dp))
+        }
+
         IosSection("Weitere Bereiche") {
             IosRow(icon = "📊", bg = iosPurple, titel = "Statistik",
                 text = "Belastungsindex & Historie", onClick = { gotoTab(5) })
