@@ -4,6 +4,8 @@ import android.content.Intent
 import android.print.PrintAttributes
 import android.print.PrintManager
 import android.webkit.WebView
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -83,7 +86,7 @@ fun PlanerScreen(vm: PlanerViewModel) {
 }
 
 // ==============================================================================
-// TAB 0: HOME (Uebersicht + Schnelleinstieg)
+// TAB 0: HOME (iOS-inspiriert: grosser Titel, inset-grouped Listen, Icon-Badges)
 // ==============================================================================
 @Composable
 fun HomeTab(vm: PlanerViewModel, gotoTab: (Int) -> Unit) {
@@ -94,79 +97,167 @@ fun HomeTab(vm: PlanerViewModel, gotoTab: (Int) -> Unit) {
     val hatPlan = state.plan.isNotEmpty()
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(vertical = 8.dp, horizontal = 16.dp)
     ) {
-        Text("Willkommen!", style = MaterialTheme.typography.headlineSmall)
+        // Grosser iOS-artiger Titel
         Text(
-            "Monatsdienstplan der Sani-AG planen, Statistiken führen, Ausfälle verwalten.",
-            style = MaterialTheme.typography.bodySmall
+            "Sani Alarm",
+            style = MaterialTheme.typography.displaySmall,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+            modifier = Modifier.padding(top = 8.dp)
         )
-        Spacer(Modifier.height(12.dp))
-
-        // Status-Karten
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            HomeStat("Personen", "$anzahlPersonen", Modifier.weight(1f))
-            HomeStat("Teams", "$anzahlTeams", Modifier.weight(1f))
-            HomeStat("Krank", "$anzahlKrank", Modifier.weight(1f))
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        // Schnellstart-Schritte
-        Text("Schnellstart", style = MaterialTheme.typography.titleMedium)
-        HomeSchritt(
-            nummer = 1,
-            titel = "Personen anlegen",
-            beschreibung = if (anzahlPersonen == 0) "Noch keine Personen — hier starten!" else "$anzahlPersonen Personen vorhanden",
-            erledigt = anzahlPersonen > 0,
-            onClick = { gotoTab(4) }
-        )
-        HomeSchritt(
-            nummer = 2,
-            titel = "Ausfälle markieren",
-            beschreibung = if (anzahlKrank == 0) "Niemand krank gemeldet" else "$anzahlKrank Person(en) krank",
-            erledigt = anzahlKrank > 0,
-            onClick = { gotoTab(2) }
-        )
-        HomeSchritt(
-            nummer = 3,
-            titel = "Plan generieren",
-            beschreibung = if (hatPlan) "Plan ist bereit (Tab Plan)" else "Noch kein Plan für diesen Monat",
-            erledigt = hatPlan,
-            onClick = { gotoTab(1) }
+        Text(
+            "Dienstplan · Statistik · Ausfälle",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(20.dp))
 
-        // Nächster Dienst aus dem aktuellen Plan
-        if (hatPlan) {
-            Text("Nächster Dienst", style = MaterialTheme.typography.titleMedium)
-            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                Column(Modifier.padding(12.dp)) {
-                    val naechster = state.plan.first()
-                    Text("Woche ${naechster.woche}, ${naechster.tag}", style = MaterialTheme.typography.titleSmall)
-                    Text(naechster.mitglieder.joinToString() + (naechster.springer?.let { " + $it" } ?: ""))
-                }
+        // iOS-Statstrip: drei Werte in einer grouped Card
+        IosSection("Übersicht") {
+            Row(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+                HomeStat("Personen", "$anzahlPersonen", Modifier.weight(1f))
+                HomeDivider()
+                HomeStat("Teams", "$anzahlTeams", Modifier.weight(1f))
+                HomeDivider()
+                HomeStat("Krank", "$anzahlKrank", Modifier.weight(1f))
             }
         }
 
-        Spacer(Modifier.height(16.dp))
-        Text("Weitere Bereiche", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { gotoTab(5) }, modifier = Modifier.weight(1f)) { Text("Statistik") }
-            OutlinedButton(onClick = { gotoTab(6) }, modifier = Modifier.weight(1f)) { Text("Einstellungen") }
+        Spacer(Modifier.height(20.dp))
+
+        // Naechster Dienst prominent
+        if (hatPlan) {
+            IosSection("Nächster Dienst") {
+                val naechster = state.plan.first()
+                Column(Modifier.padding(14.dp)) {
+                    Text(
+                        "Woche ${naechster.woche} · ${naechster.tag}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                    )
+                    Text(
+                        naechster.mitglieder.joinToString() +
+                            (naechster.springer?.let { "  +  $it" } ?: ""),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(Modifier.height(20.dp))
         }
-        Spacer(Modifier.height(60.dp))
+
+        // Schnellstart als inset-grouped Liste mit runden Icon-Badges
+        IosSection("Schnellstart") {
+            IosRow(icon = "👤", bg = iosBlue, titel = "Personen",
+                text = if (anzahlPersonen == 0) "Noch keine — hier starten" else "$anzahlPersonen aktiv",
+                badge = if (anzahlPersonen > 0) "✓" else "", onClick = { gotoTab(4) })
+            IosSeparator()
+            IosRow(icon = "🤒", bg = iosOrange, titel = "Ausfälle",
+                text = if (anzahlKrank == 0) "Niemand krank" else "$anzahlKrank krank gemeldet",
+                badge = if (anzahlKrank > 0) "✓" else "", onClick = { gotoTab(2) })
+            IosSeparator()
+            IosRow(icon = "🗓️", bg = iosGreen, titel = "Plan",
+                text = if (hatPlan) "Bereit — ansehen" else "Noch kein Plan diesen Monat",
+                badge = if (hatPlan) "✓" else "", onClick = { gotoTab(1) })
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        IosSection("Weitere Bereiche") {
+            IosRow(icon = "📊", bg = iosPurple, titel = "Statistik",
+                text = "Belastungsindex & Historie", onClick = { gotoTab(5) })
+            IosSeparator()
+            IosRow(icon = "⚙️", bg = iosGray, titel = "Einstellungen",
+                text = "Regeln, Sperrtage, Daten", onClick = { gotoTab(6) })
+        }
+
+        Spacer(Modifier.height(40.dp))
+    }
+}
+
+private val iosBlue = Color(0xFF007AFF)
+private val iosGreen = Color(0xFF34C759)
+private val iosOrange = Color(0xFFFF9500)
+private val iosPurple = Color(0xFFAF52DE)
+private val iosGray = Color(0xFF8E8E93)
+
+@Composable
+fun IosSection(titel: String, content: @Composable ColumnScope.() -> Unit) {
+    Column {
+        Text(
+            titel.uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 16.dp, bottom = 6.dp)
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(content = content)
+        }
     }
 }
 
 @Composable
-fun HomeStat(label: String, wert: String, modifier: Modifier = Modifier) {
-    Card(modifier) {
-        Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(wert, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
-            Text(label, style = MaterialTheme.typography.bodySmall)
+fun IosRow(icon: String, bg: Color, titel: String, text: String, onClick: () -> Unit, badge: String = "") {
+    Row(
+        Modifier.fillMaxWidth()
+            .clickableNoRipple(onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Runder Icon-Badge (iOS-Stil)
+        Box(
+            Modifier.size(34.dp).background(bg, androidx.compose.foundation.shape.CircleShape),
+            contentAlignment = Alignment.Center
+        ) { Text(icon, fontSize = 16.sp) }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(titel, style = MaterialTheme.typography.bodyLarge)
+            Text(text, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        if (badge.isNotEmpty()) {
+            Text(badge, color = iosGreen, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            Spacer(Modifier.width(8.dp))
+        }
+        Text("›", style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+fun IosSeparator() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 60.dp),
+        thickness = 0.5.dp,
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    )
+}
+
+@Composable
+private fun HomeDivider() {
+    Box(Modifier.width(0.5.dp).height(40.dp).background(MaterialTheme.colorScheme.outlineVariant))
+}
+
+private fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier =
+    this.composed { clickable(onClick = onClick) }
+
+@Composable
+fun HomeStat(label: String, wert: String, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(wert, style = MaterialTheme.typography.headlineSmall,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        Text(label, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
