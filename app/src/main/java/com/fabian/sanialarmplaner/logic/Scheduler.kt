@@ -25,6 +25,8 @@ typealias Abwesenheiten = Map<String, Set<Int>>
 fun tagIndex(woche: Int, tag: String): Int =
     (woche - 1) * 5 + Wochentage.dienst.indexOf(tag)
 
+private fun tagIdx(s: Schluessel): Int = tagIndex(s.first, s.second)
+
 // ==============================================================================
 // AUFSTELLUNG: Wer ist überhaupt verfügbar?
 // ==============================================================================
@@ -281,8 +283,9 @@ fun generiereDienstplan(
     aufstellung: Aufstellung,
     abwesenheiten: Abwesenheiten = emptyMap(),
     vorbelegungen: Map<Schluessel, Dienst> = emptyMap(),
+    gesperrteTage: Set<Int> = emptySet(),
 ): PlanErgebnis {
-    if (aufstellung.aktivePaare.isEmpty()) return PlanErgebnis()
+    if (aufstellung.aktivePaare.isEmpty() && gesperrteTage.size < 10) return PlanErgebnis()
 
     // Vorbelegungen vorab validieren: widerspruechliche Vorbelegungen (z.B.
     // zwei Teams in derselben Woche) machen die Suche unloesbar -> sofort abbrechen
@@ -306,7 +309,7 @@ fun generiereDienstplan(
             val seed = if (config.seed != 0L) config.seed + entspannung * 1_000_000L + versuch
                        else Random(System.nanoTime()).nextLong()
             val plan = versucheMitSeed(
-                seed, config, aufstellung, abwesenheiten, vorbelegungen, entspannung
+                seed, config, aufstellung, abwesenheiten, vorbelegungen, entspannung, gesperrteTage
             )
             if (plan != null) {
                 val entschaerft = when (entspannung) {
@@ -328,6 +331,7 @@ private fun versucheMitSeed(
     abwesenheiten: Abwesenheiten,
     vorbelegungen: Map<Schluessel, Dienst>,
     entspannung: Int,
+    gesperrteTage: Set<Int>,
 ): Map<Schluessel, Dienst>? {
     val alleTage = Wochen.alle.flatMap { w -> Wochentage.dienst.map { Schluessel(w, it) } }
     val dienstplan = mutableMapOf<Schluessel, Dienst>()
@@ -342,7 +346,7 @@ private fun versucheMitSeed(
         if (tiefe > 200) return null   // Schutz vor Extremfällen
         if (System.currentTimeMillis() > deadline) return null
         var i = index
-        while (i < alleTage.size && alleTage[i] in dienstplan) i++
+        while (i < alleTage.size && (alleTage[i] in dienstplan || tagIdx(alleTage[i]) in gesperrteTage)) i++
 
         if (i == 10 && config.regeln.blockFairness && !pruefeBlockFairness(dienstplan, listOf(1, 2), aufstellung)) return null
         if (i == alleTage.size) {

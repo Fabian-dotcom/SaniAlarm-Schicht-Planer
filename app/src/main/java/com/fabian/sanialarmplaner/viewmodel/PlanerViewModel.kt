@@ -26,12 +26,16 @@ data class ImportVorschau(
 data class PlanEintrag(
     val woche: Int,
     val tag: String,
-    val paar: String,
+    val paar: String?,
     val springer: String?,
     val mitglieder: List<String>,
     val vorbelegt: Boolean,
+    val gesperrt: Boolean = false,     // kein Dienst an diesem Tag (z.B. schulfrei)
     val vertretungHinweis: String? = null,
-)
+) {
+    /** Convenience: true wenn dieser Slot einen Dienst hat. */
+    val hatDienst: Boolean get() = paar != null && !gesperrt
+}
 
 data class VertretungsVorschlag(
     val name: String,
@@ -56,6 +60,8 @@ data class UiState(
     val kranke: Set<String> = emptySet(),
     val abwesenheiten: Map<String, Set<Int>> = emptyMap(),
     val vorbelegungen: Map<Pair<Int, String>, Dienst> = emptyMap(),
+    /** Tage an denen GAR KEIN Dienst stattfindet (z.B. schulfrei): Indizes 0..19 */
+    val gesperrteTage: Set<Int> = emptySet(),
     val plan: List<PlanEintrag> = emptyList(),
     val hinweise: List<String> = emptyList(),
     val fehler: String? = null,
@@ -385,7 +391,8 @@ class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamSto
         val fehler = validiereDienstplan(
             state.config,
             aufstellung,
-            neuerPlan.associate { (it.woche to it.tag) to Dienst(it.paar, it.springer) },
+            neuerPlan.filter { !it.gesperrt && it.paar != null }
+                .associate { (it.woche to it.tag) to Dienst(it.paar!!, it.springer) },
             state.abwesenheiten,
         )
         if (fehler.isNotEmpty()) return fehler
@@ -399,6 +406,17 @@ class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamSto
 
     private fun geplanteEinsaetze(person: String): Int =
         state.plan.count { person in it.mitglieder }
+
+    fun toggleGesperrterTag(woche: Int, tag: String) {
+        val idx = tagIndex(woche, tag)
+        val neue = state.gesperrteTage.toMutableSet()
+        if (!neue.add(idx)) neue.remove(idx)
+        // Vorbelegung auf gesperrtem Tag entfernen (Widerspruch vermeiden)
+        val neueVorbelegungen = if (idx in neue)
+            state.vorbelegungen.filterKeys { it.first != woche || it.second != tag }
+        else state.vorbelegungen
+        state = state.copy(gesperrteTage = neue, vorbelegungen = neueVorbelegungen)
+    }
 
     fun fuegeVorbelegungHinzu(woche: Int, tag: String, paar: String, springer: String?) {
         if (state.vorbelegungen.containsKey(woche to tag)) return
@@ -427,7 +445,8 @@ class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamSto
         val ergebnis = withContext(Dispatchers.Default) {
             val aufstellung = verarbeiteAufstellung(state.config, state.kranke, state.abwesenheiten)
             val res = generiereDienstplan(
-                state.config, aufstellung, state.abwesenheiten, state.vorbelegungen
+                state.config, aufstellung, state.abwesenheiten,
+                state.vorbelegungen, state.gesperrteTage
             )
             res to aufstellung
         }
@@ -445,10 +464,16 @@ class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamSto
 
         val eintraege = Wochen.alle.flatMap { w ->
             Wochentage.dienst.map { t ->
-                val d = plan.getValue(w to t)
-                val mitglieder = (aufstellung.aktivePaare[d.paar]
-                    ?: state.config.teams[d.paar].orEmpty()) + listOfNotNull(d.springer)
-                PlanEintrag(w, t, d.paar, d.springer, mitglieder, (w to t) in state.vorbelegungen)
+                val idx = tagIndex(w, t)
+                if (idx in state.gesperrteTage) {
+                    // Gesperrter Tag (z.B. schulfrei): kein Dienst
+                    PlanEintrag(w, t, null, null, emptyList(), false, gesperrt = true)
+                } else {
+                    val d = plan.getValue(w to t)
+                    val mitglieder = (aufstellung.aktivePaare[d.paar]
+                        ?: state.config.teams[d.paar].orEmpty()) + listOfNotNull(d.springer)
+                    PlanEintrag(w, t, d.paar, d.springer, mitglieder, (w to t) in state.vorbelegungen)
+                }
             }
         }
         val hinweise = buildList {
@@ -470,6 +495,7 @@ class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamSto
             for (t in Wochentage.dienst) {
                 val e = state.plan.firstOrNull { it.woche == w && it.tag == t } ?: continue
                 val marker = buildString {
+                    if (e.gesperrt) append(" [KEIN DIENST]")
                     if (e.vorbelegt) append(" [VORBELEGT]")
                     e.vertretungHinweis?.let { append(" [VERTRETUNG: $it]") }
                 }

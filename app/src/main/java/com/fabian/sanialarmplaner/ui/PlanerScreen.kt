@@ -517,11 +517,19 @@ fun KalenderZelle(e: PlanEintrag, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
         shape = MaterialTheme.shapes.small,
-        color = if (e.vorbelegt) MaterialTheme.colorScheme.tertiaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant,
+        color = when {
+            e.gesperrt -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+            e.vorbelegt -> MaterialTheme.colorScheme.tertiaryContainer
+            else -> MaterialTheme.colorScheme.surfaceVariant
+        },
         tonalElevation = 1.dp
     ) {
         Column(Modifier.padding(6.dp)) {
+            if (e.gesperrt) {
+                Text("—", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                return@Column
+            }
             // Namen (nur Vornamen, damit es in die schmale Zelle passt)
             e.mitglieder.forEach { name ->
                 Text(
@@ -784,6 +792,29 @@ fun VorbelegungTab(vm: PlanerViewModel) {
             onClick = { vm.fuegeVorbelegungHinzu(woche, tag, paar, springer) },
             enabled = paar.isNotEmpty(), modifier = Modifier.fillMaxWidth()
         ) { Text("Hinzufügen") }
+
+        Spacer(Modifier.height(16.dp))
+        // ---------------- Gesperrte Tage (kein Dienst, z.B. schulfrei) ------
+        Text("Kein Dienst (z.B. schulfrei)", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Markiere Tage, an denen GAR KEIN Dienst stattfindet. Der Plan lässt diese Tage leer.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(Modifier.height(6.dp))
+        Wochen.alle.forEach { w ->
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("W$w", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(30.dp))
+                Wochentage.dienst.forEach { t ->
+                    val gesperrt = tagIndex(w, t) in state.gesperrteTage
+                    FilterChip(
+                        selected = gesperrt,
+                        onClick = { vm.toggleGesperrterTag(w, t) },
+                        label = { Text(t.take(2), fontSize = 11.sp) },
+                        modifier = Modifier.heightIn(min = 32.dp)
+                    )
+                }
+            }
+        }
 
         Spacer(Modifier.height(12.dp))
         if (state.vorbelegungen.isEmpty()) {
