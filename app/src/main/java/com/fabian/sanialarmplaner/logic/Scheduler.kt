@@ -278,6 +278,8 @@ data class PlanErgebnis(
     val versuche: Int = 0,
     /** Konkrete Konflikte bei den Vorbelegungen (leer = ok). */
     val vorbelegungsProbleme: List<String> = emptyList(),
+    /** Erklärbare Planung (#44): Abweichungen, die bewusst akzeptiert wurden */
+    val erklaerungen: List<String> = emptyList(),
 )
 
 /**
@@ -368,10 +370,27 @@ fun generiereDienstplan(
             if (plan != null) {
                 val entschaerft = when (entspannung) {
                     0 -> emptyList()
-                    1 -> listOf("Fairness- und Wochentags-Regel gelockert (Stufe 1)")
-                    else -> listOf("Fairness, Wochentage, Back-to-Back und Präferenzen gelockert (Stufe 2)")
+                    1 -> listOf(
+                        "Fairness- und Wochentags-Regel gelockert (Stufe 1)",
+                        "Warum: Mit allen Regeln war kein Plan möglich — diese Erleichterung war nötig."
+                    )
+                    else -> listOf(
+                        "Fairness, Wochentage, Back-to-Back und Präferenzen gelockert (Stufe 2)",
+                        "Warum: Selbst mit Stufe 1 war kein Plan möglich. Sperrtage blieben immer aktiv."
+                    )
                 }
-                return PlanErgebnis(plan, entschaerft, versuch)
+                // Erklärbare Planung (#44): Engagement-Bilanz beifügen
+                val erklaerungen = entschaerft.toMutableList()
+                val einsaetzeProPaar = plan.values.groupingBy { it.paar }.eachCount()
+                val min = einsaetzeProPaar.values.minOrNull() ?: 0
+                val max = einsaetzeProPaar.values.maxOrNull() ?: 0
+                if (max - min > 1) {
+                    erklaerungen.add("Einsatzverteilung: mind. $min×, max. $max× pro Team (Differenz $max-min) — durch Vorbelegungen/Ausfälle bedingt")
+                }
+                if (gesperrteTage.isNotEmpty()) {
+                    erklaerungen.add("${gesperrteTage.size} Tag(e) ohne Dienst (schulfrei etc.) berücksichtigt")
+                }
+                return PlanErgebnis(plan, entschaerft, versuch, erklaerungen = erklaerungen)
             }
         }
     }

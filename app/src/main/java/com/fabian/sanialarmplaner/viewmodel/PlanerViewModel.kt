@@ -607,6 +607,8 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
         }
         val hinweise = buildList {
             addAll(res.entschärfteRegeln)
+            // Erklärbare Planung (#44): erklaerungen kommen oben mit rein
+            addAll(res.erklaerungen.filter { !res.entschärfteRegeln.contains(it) })
             if (aufstellung.ausgefallenePaare.isNotEmpty()) {
                 add("Ausgefallene Teams: ${aufstellung.ausgefallenePaare.joinToString()}")
             }
