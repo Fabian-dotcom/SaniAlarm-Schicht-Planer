@@ -50,19 +50,17 @@ fun PersonenTab(vm: PlanerViewModel) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                if (suche.isBlank()) "Personen-Kartei (${state.datei.personen.size})"
-                else "Treffer: ${gefilterte.size} von ${state.datei.personen.size}",
-                style = MaterialTheme.typography.titleMedium
-            )
-        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Spacer(Modifier.weight(1f))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (suche.isBlank()) "Personen-Kartei (${state.datei.personen.size})"
+                    else "Treffer: ${gefilterte.size} von ${state.datei.personen.size}",
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
             // Ansicht umschalten
             FilterChip(
                 selected = !gridAnsicht, onClick = { gridAnsicht = false }, label = { Text("Liste") }
@@ -70,6 +68,7 @@ fun PersonenTab(vm: PlanerViewModel) {
             FilterChip(
                 selected = gridAnsicht, onClick = { gridAnsicht = true }, label = { Text("Kacheln") }
             )
+            Spacer(Modifier.width(6.dp))
             Button(onClick = { neu = true }) { Text("+ Neu") }
         }
         Text(
