@@ -499,6 +499,11 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
         state = state.copy(vorbelegungen = state.vorbelegungen - schluessel)
     }
 
+    /** Alle Personen steigen einmal auf (Stufe 10 -> Q1, Klasse faellt weg) (#Wunsch). */
+    fun alleAufsteigen() {
+        updateDatei { d -> com.fabian.sanialarmplaner.logic.KennzahlenEngine.alleAufsteigen(d) }
+    }
+
     fun fuegeWiederkehrendesMusterHinzu(m: WiederkehrendeVorbelegung) {
         updateDatei { d -> d.copy(wiederkehrend = d.wiederkehrend + m) }
     }
@@ -670,7 +675,27 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
         state = state.copy(laeuft = false, plan = eintraegeKomplett, hinweise = hinweise,
             fehler = null)
         erinnerungenInvalidiert = true
+        // Plan dauerhaft speichern (#Wunsch: historische Daten außerhalb des RAMs)
+        speicherePlanDauerhaft(eintraegeKomplett)
     }
+
+    /** Serialisiert den aktuellen Plan und legt ihn dauerhaft in der .saniteam ab. */
+    private fun speicherePlanDauerhaft(eintraege: List<PlanEintrag>) {
+        val map = eintraege.filter { it.hatDienst }.associate { e ->
+            "${e.woche}|${e.tag}" to listOfNotNull(e.paar, e.springer)
+        }
+        val plan = GespeicherterPlan(
+            name = "${state.planMonat.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.GERMANY)} ${state.planMonat.year}",
+            erstelltAm = LocalDate.now().toString(),
+            monat = state.planMonat.toString(),
+            eintraege = map,
+        )
+        updateDatei { d ->
+            d.copy(gespeichertePlaene = (d.gespeichertePlaene.filterNot { it.monat == plan.monat }) + plan)
+        }
+    }
+
+    fun gespeichertePlaene(): List<GespeicherterPlan> = state.datei.gespeichertePlaene.sortedByDescending { it.monat }
 
     private var offeneTageGruende: List<String> = emptyList()
 

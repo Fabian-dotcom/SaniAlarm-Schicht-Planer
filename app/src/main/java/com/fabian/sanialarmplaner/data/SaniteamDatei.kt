@@ -27,13 +27,17 @@ data class SaniteamDatei(
     val schultermine: List<Schultermin> = emptyList(),
     /** Wiederkehrende Vorbelegungen ('jede 2. Woche Freitag ...') */
     val wiederkehrend: List<WiederkehrendeVorbelegung> = emptyList(),
+    /** Dauerhaft gespeicherte Pläne (Historie außerhalb des RAMs) */
+    val gespeichertePlaene: List<GespeicherterPlan> = emptyList(),
 )
 
 @Serializable
 data class Person(
     val vorname: String,
     val nachname: String = "",
-    val klasse: String = "",          // z.B. "Sani-AG 10b"
+    /** Jahrgangsstufe: "7"-"10" oder "Q1"-"Q4" (ab Q1 keine Klassen mehr) */
+    val stufe: String = "",
+    val klasse: String = "",          // z.B. "10b" (nur bis Stufe 10; ab Q1 leer)
     val geschlecht: String = "",      // "m", "w", "d" (optional, frei)
     val bevorzugterPartner: String = "",   // Vorname Nachname
     val ausbildungAbgeschlossen: Boolean = false,
@@ -67,6 +71,18 @@ data class PlanEinstellung(
 data class HistorischeSchicht(
     val datum: String,        // "2026-11-05"
     val personNamen: List<String>,   // alle, die dabei waren (inkl. Springer)
+)
+
+/**
+ * Gespeicherter Dienstplan (#Wunsch: Pläne dauerhaft aufheben, nicht nur im RAM).
+ */
+@Serializable
+data class GespeicherterPlan(
+    val name: String,             // z.B. "November 2026"
+    val erstelltAm: String,       // ISO-Datum
+    val monat: String,            // "2026-11"
+    /** (woche,tag) -> (paar, springer); gesperrte Tage fehlen einfach */
+    val eintraege: Map<String, List<String>>,  // Key "w|tag" -> [paar, springer?]
 )
 
 // ==============================================================================

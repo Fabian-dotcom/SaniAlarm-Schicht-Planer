@@ -37,6 +37,34 @@ object KennzahlenEngine {
     private const val EPS = 1e-6
     private const val HALBWERTSZEIT_TAGE = 28.0
 
+    /** Schulstufen: 7-10 mit Klassen, Q1-Q4 ohne Klassen. */
+    val STUFEN = listOf("7", "8", "9", "10", "Q1", "Q2", "Q3", "Q4")
+
+    /**
+     * Aufstiegslogik (#Wunsch): Alle Personen steigen einmal auf.
+     * 10 -> Q1, Q1 -> Q2, Q2 -> Q3, Q3 -> Q4, Q4 -> (Ausbildung = Abschluss).
+     * Klassen (a-c) gibt es nur bis Stufe 10; ab Q1 bleibt die Klasse leer.
+     * Die Klasse selbst wird NICHT gemischt (10a bleibt 10a, nur Jahrgang +1).
+     */
+    fun alleAufsteigen(datei: SaniteamDatei): SaniteamDatei {
+        val neuePersonen = datei.personen.map { p ->
+            val (neueStufe, neueKlasse) = aufsteigen(p.stufe, p.klasse)
+            p.copy(stufe = neueStufe, klasse = neueKlasse)
+        }
+        return datei.copy(personen = neuePersonen)
+    }
+
+    private fun aufsteigen(stufe: String, klasse: String): Pair<String, String> = when (stufe) {
+        "7" -> "8" to klasse
+        "8" -> "9" to klasse
+        "9" -> "10" to klasse
+        "10" -> "Q1" to ""      // Klassen fallen in der Oberstufe weg
+        "Q1" -> "Q2" to ""
+        "Q2" -> "Q3" to ""
+        "Q3" -> "Q4" to ""
+        else -> stufe to klasse   // Q4 oder unbekannt: bleibt (Abschluss)
+    }
+
     /** Alle Kennzahlen fuer alle aktiven Personen berechnen. */
     fun berechne(
         datei: SaniteamDatei,

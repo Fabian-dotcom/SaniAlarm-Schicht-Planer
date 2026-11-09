@@ -199,40 +199,66 @@ fun TagesZelle(
     }
 }
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun SchulterminDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
-    var datum by remember { mutableStateOf(LocalDate.now().toString()) }
+    var datum by remember { mutableStateOf(LocalDate.now()) }
+    var zeigeDatePicker by remember { mutableStateOf(false) }
     var titel by remember { mutableStateOf("Klassenarbeit") }
     var klassenText by remember { mutableStateOf("") }
     var stufenText by remember { mutableStateOf("") }
     var typ by remember { mutableStateOf("Klassenarbeit") }
     val klassen = vm.klassenListe()
 
+    if (zeigeDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = datum.toEpochDay() * 24 * 60 * 60 * 1000
+        )
+        DatePickerDialog(
+            onDismissRequest = { zeigeDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { ms ->
+                        datum = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.of("UTC")).toLocalDate()
+                    }
+                    zeigeDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { zeigeDatePicker = false }) { Text("Abbrechen") } }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onSchliessen,
         confirmButton = {
             TextButton(onClick = {
-                val d = try { LocalDate.parse(datum) } catch (_: Exception) { null }
-                if (d != null) {
-                    vm.fuegeSchulterminHinzu(
-                        Schultermin(
-                            datum = d.toString(),
+                val d = datum
+                vm.fuegeSchulterminHinzu(
+                    Schultermin(
+                        datum = d.toString(),
                             titel = titel.ifBlank { "Termin" },
                             klassen = klassenText.split(",").map { it.trim() }.filter { it.isNotBlank() },
                             stufen = stufenText.split(",").map { it.trim() }.filter { it.isNotBlank() },
-                            typ = typ,
-                        )
+                        typ = typ,
                     )
-                    onSchliessen()
-                }
+                )
+                onSchliessen()
             }) { Text("Speichern") }
         },
         dismissButton = { TextButton(onClick = onSchliessen) { Text("Abbrechen") } },
         title = { Text("Neuer Schultermin") },
         text = {
             Column {
-                OutlinedTextField(datum, { datum = it }, label = { Text("Datum (JJJJ-MM-TT)") })
+                // Datum per DatePicker statt Freitext (#Wunsch)
+                OutlinedButton(
+                    onClick = { zeigeDatePicker = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Datum: ${datum.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))}")
+                }
                 OutlinedTextField(titel, { titel = it }, label = { Text("Titel") })
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("Klassenarbeit", "Ferien", "Feiertag", "Sonstiges").forEach { t ->
