@@ -641,11 +641,16 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
                     // Gesperrter Tag (z.B. schulfrei): kein Dienst
                     PlanEintrag(w, t, null, null, emptyList(), false, gesperrt = true)
                 } else {
-                    val d = plan.getValue(w to t)
-                    val mitglieder = (aufstellung.aktivePaare[d.paar]
-                        ?: state.config.teams[d.paar].orEmpty()) + listOfNotNull(d.springer)
-                    PlanEintrag(w, t, d.paar, d.springer, mitglieder,
-                        (w to t) in state.vorbelegungen || (w to t) in patternVorbelegungen)
+                    val d = plan[w to t]
+                    if (d == null) {
+                        // Teilplan (#40): offener Tag ohne Besetzung — nicht crashen
+                        PlanEintrag(w, t, null, null, emptyList(), false)
+                    } else {
+                        val mitglieder = (aufstellung.aktivePaare[d.paar]
+                            ?: state.config.teams[d.paar].orEmpty()) + listOfNotNull(d.springer)
+                        PlanEintrag(w, t, d.paar, d.springer, mitglieder,
+                            (w to t) in state.vorbelegungen || (w to t) in patternVorbelegungen)
+                    }
                 }
             }
         }
@@ -862,12 +867,19 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
             val woche = kalenderWocheFuer(datum) ?: continue
             val tag = Wochentage.dienst.firstOrNull { datumFuer(woche, it) == datum } ?: continue
             val idx = tagIndex(woche, tag)
-            val betroffene = (t.personNamen.toSet() + personen
-                .filter { it.klasse in t.klassen }.map { it.vollerName() }).toMutableSet()
+            val betroffene = (t.personNamen.toSet() +
+                // Klassen-Match: Termin-Klassen wie "10b" matchen Person (stufe+klasse)
+                personen.filter { p ->
+                    t.klassen.any { k -> k == "${p.stufe}${p.klasse}" || k == p.klasse }
+                }.map { it.vollerName() } +
+                // Stufen-Match (#51-Fix): Termin-Stufen wie "Q1" matchen alle der Stufe
+                personen.filter { p -> p.stufe in t.stufen }.map { it.vollerName() }
+            ).toMutableSet()
             map.getOrPut(idx) { mutableSetOf() }.addAll(betroffene)
         }
         return object : KlassenArbeitLookup {
             override fun betroffene(tagIdx: Int): Set<String> = map[tagIdx].orEmpty()
+            override fun betroffeneVortag(tagIdx: Int): Set<String> = map.getOrDefault(tagIdx + 1, emptySet())
         }
     }
 

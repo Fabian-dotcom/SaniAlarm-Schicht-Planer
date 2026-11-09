@@ -79,6 +79,36 @@ class RegressionTest {
     }
 
     @Test
+    fun `Fairness-Gebot - jedes aktive Team mindestens 1x pro 2-Wochen-Block`() {
+        val a = verarbeiteAufstellung(config, emptySet())
+        val res = generiereDienstplan(config, a)
+        val plan = res.plan!!
+        for (block in listOf(listOf(1, 2), listOf(3, 4))) {
+            val genutzte = plan.filter { it.key.first in block }.values.map { it.paar }.toSet()
+            assertEquals(
+                "Jedes Team muss 1x pro Block dran kommen (Block $block)",
+                a.aktivePaare.keys, genutzte
+            )
+        }
+    }
+
+    @Test
+    fun `Fairness mit Sperrtagen - keine Teams ausgelassen`() {
+        val a = verarbeiteAufstellung(config, emptySet())
+        // Tage sperren: macht den alten Index-10-Check ueberspringbar
+        val gesperrt = setOf(tagIndex(1, "Montag"), tagIndex(2, "Freitag"))
+        val res = generiereDienstplan(config, a, gesperrteTage = gesperrt)
+        val plan = res.plan!!
+        for (block in listOf(listOf(1, 2), listOf(3, 4))) {
+            val genutzte = plan.filter { it.key.first in block && it.value.paar != null }.values.map { it.paar }.toSet()
+            assertEquals(
+                "Auch mit Sperrtagen muss jedes Team 1x pro Block dran kommen (Block $block)",
+                a.aktivePaare.keys, genutzte
+            )
+        }
+    }
+
+    @Test
     fun `schnellcheck und alte Pruefung liefern gleiche Entscheidungen`() {
         // Stichprobe: Fuer viele Zustaende muessen beide Pruefungen uebereinstimmen
         val a = verarbeiteAufstellung(config, emptySet())

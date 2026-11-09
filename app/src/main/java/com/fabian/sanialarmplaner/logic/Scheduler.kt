@@ -84,6 +84,8 @@ data class RegelVerstoß(val regel: RegelId, val beschreibung: String)
 /** Klassenarbeits-Lookup (#53): Index -> betroffene Personennamen */
 interface KlassenArbeitLookup {
     fun betroffene(tagIdx: Int): Set<String>
+    /** Personen mit Arbeit am VORHERIGEN Tag (fuer den weichen Vortagsfaktor) */
+    fun betroffeneVortag(tagIdx: Int): Set<String> = emptySet()
 }
 
 fun istGueltig(
@@ -117,13 +119,24 @@ fun istGueltig(
             verstoesse += RegelVerstoß(RegelId.ABWESENHEIT, "$p ist am $tagName (Woche $woche) abwesend")
         }
     }
-    // REGEL 1d (#53): Klassenarbeit am selben Tag = harte Regel (nie lockerbar).
-    // Die Termine werden als Parameter uebergeben (siehe istGueltig-Signatur).
-    if (config.regeln.klassenarbeitHart && klassenArbeiten != null) {
+    // REGEL 1d (#53): Klassenarbeits-Modi
+    // "streng" = harte Sperre (nie lockerbar), "gewichtet" = weicher Faktor
+    // (kann in Entspannungsstufe 1+ zuruecktreten), "aus" = keine Wirkung.
+    if (klassenArbeiten != null && config.regeln.klassenarbeitModus != "aus") {
         val personenMitArbeit = klassenArbeiten.betroffene(tagIndex(woche, tagName))
+        val personenVortag = if (config.regeln.klassenarbeitVortag)
+            klassenArbeiten.betroffeneVortag(tagIndex(woche, tagName)) else emptySet()
+        val hart = config.regeln.klassenarbeitModus == "streng"
         for (p in beteiligtePersonen) {
             if (p in personenMitArbeit) {
-                verstoesse += RegelVerstoß(RegelId.SPERRTAG, "$p hat am $tagName eine Klassenarbeit (harte Regel)")
+                verstoesse += RegelVerstoß(
+                    if (hart) RegelId.SPERRTAG else RegelId.FAIRNESS,
+                    "$p hat am $tagName eine Klassenarbeit" + if (hart) " (harte Regel)" else " (gewichtet)"
+                )
+            } else if (p in personenVortag) {
+                // Vortagsfaktor: Lernen am Vortag als weicher Verstoß
+                verstoesse += RegelVerstoß(RegelId.FAIRNESS,
+                    "$p lernt am Vortag (Klassenarbeit am Folgetag) — Ermessenssache")
             }
         }
     }
@@ -231,8 +244,13 @@ fun pruefeBlockFairness(
             d.springer?.let { geplanteSpringer.add(it) }
         }
     }
+    // "Gebot": JEDER aktive Paar kommt MINDESTENS 1x pro Block dran.
+    // Springer: nur fordern, wenn es genug Slots gibt (Slots - aktivePaare >= Springer).
+    val slotCount = dienstplan.count { it.key.first in blockWochen }
+    val springerMin = if (slotCount - aufstellung.aktivePaare.size >= aufstellung.aktiveSpringer.size)
+        aufstellung.aktiveSpringer.size else 0
     return geplantePaare.size == aufstellung.aktivePaare.size &&
-        geplanteSpringer.size == aufstellung.aktiveSpringer.size
+        geplanteSpringer.size >= springerMin
 }
 
 fun validiereDienstplan(
@@ -465,8 +483,17 @@ private fun pruefeSchnell(
         if (tag in config.personSperrtage[p].orEmpty()) return false
         val idx = tagIndex(woche, tag)
         if (idx in abwesenheiten[p].orEmpty()) return false
-        // #53: Klassenarbeit = harte Regel
-        if (klassenArbeiten != null && p in klassenArbeiten.betroffene(idx)) return false
+        // #53: Klassenarbeit je Modus — streng blockiert hart, gewichtet nur in
+        // Stufe 0, Vortag in Stufe 0 wenn aktiv
+        if (klassenArbeiten != null) {
+            val modus = config.regeln.klassenarbeitModus
+            if (p in klassenArbeiten.betroffene(idx)) {
+                if (modus == "streng") return false
+                if (modus == "gewichtet" && entspannung < 1) return false
+            }
+            if (config.regeln.klassenarbeitVortag && modus != "aus" &&
+                p in klassenArbeiten.betroffeneVortag(idx) && entspannung < 1) return false
+        }
     }
     // Regel 2: max 1 Schicht pro Woche
     if (config.regeln.maxEineSchichtProWoche) {
@@ -578,14 +605,28 @@ private fun versucheMitSeed(
         var i = index
         while (i < alleTage.size && (alleTage[i] in dienstplan || tagIdx(alleTage[i]) in gesperrteTage)) i++
 
-        if (i == 10 && config.regeln.blockFairness && !pruefeBlockFairness(dienstplan, listOf(1, 2), aufstellung)) return null
+        // Fairness-Checks an den Blockgrenzen: erst wenn ALLE Slots von Block 1
+        // (inkl. gesperrter Tage) verarbeitet sind, gilt die Regel als geprüft.
+        // Bisher: exakter Index-Check, der bei Sperrtagen/Vorbelegungen uebersprungen
+        // wurde — deshalb kamen immer dieselben Teams durch.
+        if (config.regeln.blockFairness) {
+            val anzahlVerarbeitet = (0 until i).count { tagIdx(alleTage[it]) !in gesperrteTage }
+            if (anzahlVerarbeitet == 10 && !pruefeBlockFairness(dienstplan, listOf(1, 2), aufstellung)) return null
+        }
         if (i == alleTage.size) {
             return if (!config.regeln.blockFairness || pruefeBlockFairness(dienstplan, listOf(3, 4), aufstellung)) dienstplan else null
         }
 
         val (woche, tagName) = alleTage[i]
+        val block = if (woche <= 2) "1" else "2"
+        // Fairness-Heuristik: Teams OHNE Einsatz im aktuellen Block zuerst probieren
+        // (das "Gebot": jeder kommt mindestens 1x pro 2-Wochen-Block dran)
+        val (maechtigste, rest) = aufstellung.aktivePaare.keys.partition { p ->
+            (einsaetzeProBlock["p|$p|$block"] ?: 0) == 0
+        }
+        val paareSortiert = (rest + maechtigste).shuffled(random)
         val optionen = buildList {
-            for (p in aufstellung.aktivePaare.keys.shuffled(random)) {
+            for (p in paareSortiert) {
                 for (s in aufstellung.aktiveSpringer.shuffled(random) + listOf<String?>(null)) {
                     add(p to s)
                 }

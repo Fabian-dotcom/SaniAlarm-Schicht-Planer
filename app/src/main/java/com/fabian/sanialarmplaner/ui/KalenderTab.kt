@@ -81,23 +81,19 @@ fun KalenderTab(vm: PlanerViewModel) {
                         Text(it, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
                     }
                 }
+                // Wochenweise korrekt aufbauen (#54-Fix): jede Zeile max. 7 Zellen,
+                // Startoffset = Wochentag des 1. (Montag=0), letzte Zeile aufgefuellt
                 var cursor = von
-                // erste Zeile auffuellen
-                val vorLeer = (cursor.dayOfWeek.value + 6) % 7   // Mo=0
-                Row {
-                    repeat(vorLeer) { Box(Modifier.weight(1f).heightIn(min = 44.dp)) }
-                    while ((vorLeer + (cursor.dayOfMonth - 1)) % 7 != 0 && cursor <= bis) {
-                        TagesZelle(cursor, analyse[cursor], modus, Modifier.weight(1f))
-                        cursor = cursor.plusDays(1)
-                    }
-                    // Rest auffuellen
-                    while ((vorLeer + monat.lengthOfMonth() + (7 - (vorLeer + monat.lengthOfMonth()) % 7) % 7) % 7 != 0) break
-                    val rest = (7 - ((vorLeer + monat.lengthOfMonth()) % 7)) % 7
-                    repeat(rest) { Box(Modifier.weight(1f).heightIn(min = 44.dp)) }
-                }
-                while (cursor <= bis) {
+                val startOffset = (von.dayOfWeek.value + 6) % 7   // Mo=0
+                var firstRow = true
+                while (cursor <= bis || (firstRow && cursor.dayOfWeek.value != 1)) {
                     Row {
                         var inZeile = 0
+                        // erste Zeile: leere Felder vor Tag 1
+                        if (firstRow) {
+                            repeat(startOffset) { Box(Modifier.weight(1f).heightIn(min = 44.dp)); inZeile++ }
+                            firstRow = false
+                        }
                         while (inZeile < 7 && cursor <= bis) {
                             TagesZelle(cursor, analyse[cursor], modus, Modifier.weight(1f))
                             cursor = cursor.plusDays(1)
@@ -105,6 +101,7 @@ fun KalenderTab(vm: PlanerViewModel) {
                         }
                         repeat(7 - inZeile) { Box(Modifier.weight(1f).heightIn(min = 44.dp)) }
                     }
+                    if (cursor > bis && !firstRow) break
                 }
             }
         }

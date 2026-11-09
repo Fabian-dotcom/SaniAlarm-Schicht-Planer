@@ -39,10 +39,15 @@ object KalenderAnalyse {
             val d = try { LocalDate.parse(t.datum) } catch (_: Exception) { continue }
             // Betroffene: direkt genannte Personen ODER alle aus den genannten Klassen
             val direkt = t.personNamen.toSet()
+            // Betroffene: direkt genannte + per Klasse ("10b") + per Stufe ("Q1") (#51-Fix)
             val perKlasse: List<String> = if (t.klassen.isNotEmpty())
-                personen.filter { it.klasse in t.klassen }.map { it.vollerName() }
+                personen.filter { p -> t.klassen.any { k -> k == "${p.stufe}${p.klasse}" || k == p.klasse } }
+                    .map { it.vollerName() }
             else emptyList()
-            val betroffene = (direkt + perKlasse).distinct()
+            val perStufe: List<String> = if (t.stufen.isNotEmpty())
+                personen.filter { it.stufe in t.stufen }.map { it.vollerName() }
+            else emptyList()
+            val betroffene = (direkt + perKlasse + perStufe).distinct()
 
             val alt = ergebnis[d]
             ergebnis[d] = TagesAnalyse(

@@ -40,8 +40,10 @@ data class RegelKonfig(
     val keinBackToBack: Boolean = true,
     val springerPraeferenzen: Boolean = true,
     val blockFairness: Boolean = true,
-    /** #53: Klassenarbeit = harte Regel (Person darf nicht eingeteilt werden) */
-    val klassenarbeitHart: Boolean = true,
+    /** #53: Klassenarbeits-Modus: "streng" (hart), "gewichtet" (weich), "aus" */
+    val klassenarbeitModus: String = "streng",
+    /** #53: Optionaler Vortagsfaktor — Lernen am Vortag als weicher Verstoß */
+    val klassenarbeitVortag: Boolean = false,
 )
 
 // ==============================================================================

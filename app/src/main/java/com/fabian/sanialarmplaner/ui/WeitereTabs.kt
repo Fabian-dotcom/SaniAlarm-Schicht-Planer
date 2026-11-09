@@ -42,7 +42,9 @@ fun PersonenTab(vm: PlanerViewModel) {
     var neu by remember { mutableStateOf(false) }
     var zeigeQrBeitritt by remember { mutableStateOf(false) }
     var gridAnsicht by remember { mutableStateOf(false) }
+    // (terminFuerPerson oben bereits deklariert)
     var suche by remember { mutableStateOf("") }
+    var terminFuerPerson by remember { mutableStateOf<Person?>(null) }
 
     val gefilterte = state.datei.personen.filter { p ->
         suche.isBlank() ||
@@ -201,7 +203,7 @@ fun PersonenTab(vm: PlanerViewModel) {
                 Spacer(Modifier.height(8.dp))
             }
         } else if (gruppierung == "keine") {
-            sortierte.forEach { p -> KarteiZeile(p, istSpringer(p)) { bearbeite = p } }
+            sortierte.forEach { p -> KarteiZeile(p, istSpringer(p), { terminFuerPerson = p }) { bearbeite = p } }
         } else {
             // Gruppierte Listenansicht: Abschnitte mit Überschrift
             val gruppen = when (gruppierung) {
@@ -221,7 +223,7 @@ fun PersonenTab(vm: PlanerViewModel) {
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 10.dp, bottom = 2.dp)
                 )
-                liste.forEach { p -> KarteiZeile(p, istSpringer(p)) { bearbeite = p } }
+                liste.forEach { p -> KarteiZeile(p, istSpringer(p), { terminFuerPerson = p }) { bearbeite = p } }
             }
         }
         Spacer(Modifier.height(80.dp))
@@ -233,6 +235,11 @@ fun PersonenTab(vm: PlanerViewModel) {
     bearbeite?.let { p ->
         PersonDialog(vm, p) { bearbeite = null }
     }
+    // Klassenarbeit direkt in der Kartei anlegen (#52): nur Person / ganze Klasse /
+    // ganze Stufe, mit Anzeige der betroffenen Anzahl
+    terminFuerPerson?.let { p ->
+        SchulterminFuerPersonDialog(vm, p) { terminFuerPerson = null }
+    }
     if (zeigeQrBeitritt) {
         BeitrittQrDialog(vm) { zeigeQrBeitritt = false }
     }
@@ -240,7 +247,12 @@ fun PersonenTab(vm: PlanerViewModel) {
 
 /** Eine Zeile in der Karten-Liste (mit Springer-Badge). */
 @Composable
-fun KarteiZeile(p: Person, istSpringer: Boolean, onClick: () -> Unit) {
+fun KarteiZeile(
+    p: Person,
+    istSpringer: Boolean,
+    onTermin: () -> Unit,
+    onClick: () -> Unit,
+) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
@@ -279,7 +291,10 @@ fun KarteiZeile(p: Person, istSpringer: Boolean, onClick: () -> Unit) {
                             else MaterialTheme.colorScheme.error
                 )
             }
-            TextButton(onClick = onClick) { Text("Bearbeiten") }
+            Column(horizontalAlignment = Alignment.End) {
+                TextButton(onClick = onClick) { Text("Bearbeiten") }
+                TextButton(onClick = onTermin) { Text("Termin…") }
+            }
         }
     }
 }
@@ -766,8 +781,10 @@ fun EinstellungenTab(vm: PlanerViewModel) {
             RegelRow("Fairness (1–2× pro 2-Wochen-Block)", cfg.regeln.blockFairness) { v ->
                 vm.updateConfig { c -> c.copy(regeln = c.regeln.copy(blockFairness = v)) }
             },
-            RegelRow("Klassenarbeit = harter Ausschluss", cfg.regeln.klassenarbeitHart) { v ->
-                vm.updateConfig { c -> c.copy(regeln = c.regeln.copy(klassenarbeitHart = v)) }
+            RegelRow("Klassenarbeit beeinträchtigt Planung", cfg.regeln.klassenarbeitModus != "aus") { v ->
+                vm.updateConfig { c -> c.copy(regeln = c.regeln.copy(
+                    klassenarbeitModus = if (v) "streng" else "aus"
+                )) }
             },
         )
         regelListe.forEach { r ->
@@ -780,6 +797,25 @@ fun EinstellungenTab(vm: PlanerViewModel) {
             "Alle Regeln können hier abgeschaltet werden. „Kein Wochentag doppelt im Monat\" bedeutet: Ein Team, das an einem Montag diente, soll im selben Monat nicht noch einmal an einem Montag dienen — es verteilt die Teams gleichmäßiger über die Wochentage.",
             style = MaterialTheme.typography.bodySmall
         )
+
+        Spacer(Modifier.height(10.dp))
+        Text("Klassenarbeits-Modus:", style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("streng" to "Streng", "gewichtet" to "Gewichtet", "aus" to "Deaktiviert").forEach { (key, label) ->
+                FilterChip(
+                    selected = cfg.regeln.klassenarbeitModus == key,
+                    onClick = { vm.updateConfig { c -> c.copy(regeln = c.regeln.copy(klassenarbeitModus = key)) } },
+                    label = { Text(label) }
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = cfg.regeln.klassenarbeitVortag,
+                onCheckedChange = { v -> vm.updateConfig { c -> c.copy(regeln = c.regeln.copy(klassenarbeitVortag = v)) } }
+            )
+            Text("Vortagsfaktor: Lernen am Vortag als weicher Hinweis", style = MaterialTheme.typography.bodySmall)
+        }
 
         Spacer(Modifier.height(16.dp))
         // ---------------- Team-Sperrtage bearbeiten ----------------
@@ -1250,5 +1286,104 @@ fun SpringerEditor(vm: PlanerViewModel) {
     Text(
         "Leer = Springer darf überall. Mit Auswahl darf der Springer nur bei den markierten Teams eingesetzt werden.",
         style = MaterialTheme.typography.bodySmall
+    )
+}
+
+// ==============================================================================
+// KLASSENARBEIT AUS DER KARTEI (#52): Person / ganze Klasse / ganze Stufe
+// ==============================================================================
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun SchulterminFuerPersonDialog(vm: PlanerViewModel, person: Person, onSchliessen: () -> Unit) {
+    var datum by remember { mutableStateOf(LocalDate.now()) }
+    var zeigeDatePicker by remember { mutableStateOf(false) }
+    var geltung by remember { mutableStateOf("person") }   // person|klasse|stufe
+    var titel by remember { mutableStateOf("Klassenarbeit") }
+
+    val betroffene = when (geltung) {
+        "klasse" -> vm.state.datei.personen.filter {
+            it.aktiv && it.stufe == person.stufe && it.klasse == person.klasse
+        }
+        "stufe" -> vm.state.datei.personen.filter { it.aktiv && it.stufe == person.stufe }
+        else -> listOf(person)
+    }
+
+    if (zeigeDatePicker) {
+        val datePickerState = androidx.compose.material3.rememberDatePickerState(
+            initialSelectedDateMillis = datum.toEpochDay() * 24 * 60 * 60 * 1000
+        )
+        DatePickerDialog(
+            onDismissRequest = { zeigeDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { ms ->
+                        datum = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.of("UTC")).toLocalDate()
+                    }
+                    zeigeDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { zeigeDatePicker = false }) { Text("Abbrechen") } }
+        ) { DatePicker(state = datePickerState) }
+    }
+
+    AlertDialog(
+        onDismissRequest = onSchliessen,
+        title = { Text("Schultermin für ${person.vollerName()}") },
+        text = {
+            Column {
+                OutlinedButton(onClick = { zeigeDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Datum: ${datum.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))}")
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Gilt für:", style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FilterChip(
+                        selected = geltung == "person",
+                        onClick = { geltung = "person" },
+                        label = { Text("Nur ${person.vorname}") }
+                    )
+                    if (person.klasse.isNotBlank()) {
+                        FilterChip(
+                            selected = geltung == "klasse",
+                            onClick = { geltung = "klasse" },
+                            label = { Text("Klasse ${person.stufe}${person.klasse}") }
+                        )
+                    }
+                    if (person.stufe.isNotBlank()) {
+                        FilterChip(
+                            selected = geltung == "stufe",
+                            onClick = { geltung = "stufe" },
+                            label = { Text("Stufe ${person.stufe}") }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                // Betroffene-Anzahl vor dem Speichern (#52-Anforderung)
+                Card(colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                )) {
+                    Text(
+                        "Betroffen: ${betroffene.size} Person(en)",
+                        modifier = Modifier.padding(10.dp),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val termin = com.fabian.sanialarmplaner.data.Schultermin(
+                    datum = datum.toString(),
+                    titel = titel,
+                    klassen = if (geltung == "klasse") listOf("${person.stufe}${person.klasse}") else emptyList(),
+                    stufen = if (geltung == "stufe") listOf(person.stufe) else emptyList(),
+                    personNamen = if (geltung == "person") listOf(person.vollerName()) else emptyList(),
+                    typ = "Klassenarbeit",
+                )
+                vm.fuegeSchulterminHinzu(termin)
+                onSchliessen()
+            }) { Text("Speichern") }
+        },
+        dismissButton = { TextButton(onClick = onSchliessen) { Text("Abbrechen") } },
     )
 }
