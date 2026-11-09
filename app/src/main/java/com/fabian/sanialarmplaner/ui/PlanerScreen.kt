@@ -815,8 +815,10 @@ fun VorbelegungTab(vm: PlanerViewModel) {
         ) { Text("Hinzufügen") }
 
         Spacer(Modifier.height(16.dp))
-        // ---------------- Wiederkehrende Muster (#36) -----------------------
-        WiederkehrendEditor(vm)
+        // ---------------- Wiederkehrende Muster (#36): aufklappbar ----------
+        SaniAufklapp("Wiederkehrende Muster (z.B. jede 2. Woche)") {
+            WiederkehrendEditor(vm)
+        }
 
         Spacer(Modifier.height(16.dp))
         // ---------------- Gesperrte Tage (kein Dienst, z.B. schulfrei) ------

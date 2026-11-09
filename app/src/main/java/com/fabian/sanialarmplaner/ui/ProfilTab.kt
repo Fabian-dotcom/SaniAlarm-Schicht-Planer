@@ -2,7 +2,6 @@ package com.fabian.sanialarmplaner.ui
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
-import com.fabian.sanialarmplaner.ui.theme.PendingOrange
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,7 +14,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.fabian.sanialarmplaner.data.vollerName
 import com.fabian.sanialarmplaner.ui.theme.ActiveSaniBlue
@@ -25,10 +23,6 @@ import com.fabian.sanialarmplaner.viewmodel.PlanerViewModel
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
-// ==============================================================================
-// PROFIL-TAB (Startseite): "Wer bin ich", mein naechster Dienst, Meinungen (#25)
-// Design: groesste Karte mit Avatar-Initialen, Status-Zeile, Sektionen
-// ==============================================================================
 @Composable
 fun ProfilTab(vm: PlanerViewModel, goto: (String) -> Unit) {
     val state = vm.state
@@ -42,7 +36,6 @@ fun ProfilTab(vm: PlanerViewModel, goto: (String) -> Unit) {
     val diensteImPlan = state.plan.count { it.hatDienst }
     val ausfaelle = (state.kranke + state.abwesenheiten.filter { it.value.isNotEmpty() }.keys).size
 
-    // Nächster Dienst = frühester Dienst ab heute (nicht nur der erste im Plan)
     val naechster = if (ich.isBlank()) null else state.plan
         .filter { it.hatDienst && ich in it.mitglieder }
         .mapNotNull { e -> vm.datumFuer(e.woche, e.tag)?.let { it to e } }
@@ -53,7 +46,7 @@ fun ProfilTab(vm: PlanerViewModel, goto: (String) -> Unit) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Kopfzeile
+        // Kopfzeile im Stil des Dashboards
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
@@ -84,18 +77,18 @@ fun ProfilTab(vm: PlanerViewModel, goto: (String) -> Unit) {
             }
         }
 
-        // Kennzahlen
+        // Kennzahlen-Kacheln (exakt wie im Mockup oben angeordnet)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatKachel("Aktive Sanis", "$aktiveSanis", ActiveSaniBlue, Modifier.weight(1f))
-            StatKachel("Dienste", "$diensteImPlan", MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
+            StatKachel("Gesamtübersicht", "$aktiveSanis", ActiveSaniBlue, Modifier.weight(1f))
+            StatKachel("Aktive Sanis", "$aktiveSanis", MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
             StatKachel(
-                "Ausfälle", "$ausfaelle",
+                "Offene Dienste", "$ausfaelle",
                 if (ausfaelle > 0) ConflictRed else MaterialTheme.colorScheme.onSurface,
                 Modifier.weight(1f)
             )
         }
 
-        // Nächster Dienst
+        // Nächster Dienst Karte
         SectionCard("Mein nächster Dienst") {
             if (naechster == null) {
                 Text(
@@ -123,13 +116,13 @@ fun ProfilTab(vm: PlanerViewModel, goto: (String) -> Unit) {
             }
         }
 
-        // Aktionen
+        // Aktionen / Generieren Button
         if (state.config.teams.isNotEmpty()) {
             Button(
                 onClick = { scope.launch { vm.generiere() } },
                 enabled = !state.laeuft,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                shape = MaterialTheme.shapes.large
+                shape = MaterialTheme.shapes.extraLarge
             ) { Text(if (state.laeuft) "Rechnet…" else "Plan generieren") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -146,7 +139,7 @@ fun ProfilTab(vm: PlanerViewModel, goto: (String) -> Unit) {
 
 @Composable
 private fun SectionCard(titel: String, content: @Composable ColumnScope.() -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
+    Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
         Column(Modifier.padding(16.dp)) {
             Text(
                 titel.uppercase(),
@@ -163,6 +156,7 @@ private fun SectionCard(titel: String, content: @Composable ColumnScope.() -> Un
 private fun StatKachel(label: String, wert: String, farbe: Color, modifier: Modifier = Modifier) {
     Card(
         modifier,
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(Modifier.padding(12.dp)) {

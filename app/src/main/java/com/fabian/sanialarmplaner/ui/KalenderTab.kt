@@ -13,14 +13,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.fabian.sanialarmplaner.data.Schultermin
 import com.fabian.sanialarmplaner.logic.KalenderAnalyse
+import com.fabian.sanialarmplaner.ui.theme.ConflictRed
+import com.fabian.sanialarmplaner.ui.theme.PendingOrange
 import com.fabian.sanialarmplaner.viewmodel.PlanerViewModel
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
-// ==============================================================================
-// KALENDER-TAB: Monatsansicht mit Schulterminen, Heatmap und Engpaessen (#53-55)
-// ==============================================================================
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun KalenderTab(vm: PlanerViewModel) {
@@ -33,7 +32,7 @@ fun KalenderTab(vm: PlanerViewModel) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)
     ) {
-        // Monat waehlen
+        // Monatsnavigation
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -48,7 +47,6 @@ fun KalenderTab(vm: PlanerViewModel) {
             IconButton(onClick = { monat = monat.plusMonths(1) }) { Text("›") }
         }
 
-        // Modus + Klasse filtern
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             FilterChip(selected = modus == 0, onClick = { modus = 0 }, label = { Text("Termine") })
             FilterChip(selected = modus == 1, onClick = { modus = 1 }, label = { Text("Heatmap") })
@@ -73,23 +71,20 @@ fun KalenderTab(vm: PlanerViewModel) {
         val bis = monat.atEndOfMonth()
         val analyse = vm.tagesAnalyse(von, bis, klassenFilter)
 
-        // Monatsraster
-        Card(Modifier.fillMaxWidth()) {
+        // Monatsraster mit abgerundeten Ecken
+        Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
             Column(Modifier.padding(8.dp)) {
                 Row {
                     listOf("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So").forEach {
                         Text(it, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
                     }
                 }
-                // Wochenweise korrekt aufbauen (#54-Fix): jede Zeile max. 7 Zellen,
-                // Startoffset = Wochentag des 1. (Montag=0), letzte Zeile aufgefuellt
                 var cursor = von
-                val startOffset = (von.dayOfWeek.value + 6) % 7   // Mo=0
+                val startOffset = (von.dayOfWeek.value + 6) % 7
                 var firstRow = true
                 while (cursor <= bis || (firstRow && cursor.dayOfWeek.value != 1)) {
                     Row {
                         var inZeile = 0
-                        // erste Zeile: leere Felder vor Tag 1
                         if (firstRow) {
                             repeat(startOffset) { Box(Modifier.weight(1f).heightIn(min = 44.dp)); inZeile++ }
                             firstRow = false
@@ -108,20 +103,35 @@ fun KalenderTab(vm: PlanerViewModel) {
 
         Spacer(Modifier.height(12.dp))
 
-        // Engpaesse (#53)
+        // Engpässe & Konflikt-Banner (angelehnt an das Design-Mockup mit Badges)
         val probleme = KalenderAnalyse.problemTage(vm.state.datei, analyse)
         if (probleme.isNotEmpty()) {
             Text("Planungs-Engpässe", style = MaterialTheme.typography.titleMedium)
             Text(
-                "An diesen Tagen fehlen viele Personen (Klassenarbeiten o.ä.) — plant keine Dienste oder mehr Springer ein.",
+                "An diesen Tagen fehlen Personen wegen Klassenarbeiten:",
                 style = MaterialTheme.typography.bodySmall
             )
+            Spacer(Modifier.height(4.dp))
             probleme.forEach { d ->
                 val a = analyse[d] ?: return@forEach
-                Text(
-                    "• ${d.format(fmt)}: ${a.betroffenePersonen.size} Person(en) betroffen — ${a.termine.joinToString { it.titel }}",
-                    color = if (a.engpassStufe == 2) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                )
+                Card(
+                    Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(Modifier.padding(8.dp)) {
+                        Text(d.format(fmt), style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "Nicht vollständig besetzt (1 von 2 Plätzen)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            SaniBadge("${a.betroffenePersonen.size} KLASSENARBEITEN", ConflictRed)
+                            SaniBadge("1 WARNING", PendingOrange)
+                        }
+                    }
+                }
             }
             Spacer(Modifier.height(12.dp))
         }
@@ -135,7 +145,7 @@ fun KalenderTab(vm: PlanerViewModel) {
             Text("Keine Termine eingetragen.", style = MaterialTheme.typography.bodySmall)
         }
         monatTermine.forEach { t ->
-            Card(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+            Card(Modifier.fillMaxWidth().padding(vertical = 2.dp), shape = MaterialTheme.shapes.small) {
                 Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("${t.datum}: ${t.titel}" + (if (t.klassen.isNotEmpty()) " (${t.klassen.joinToString()})" else ""))
@@ -146,7 +156,11 @@ fun KalenderTab(vm: PlanerViewModel) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        Button(onClick = { neuerTermin = true }, modifier = Modifier.fillMaxWidth()) {
+        Button(
+            onClick = { neuerTermin = true },
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.extraLarge
+        ) {
             Text("+ Termin hinzufügen")
         }
         Spacer(Modifier.height(60.dp))
@@ -169,9 +183,9 @@ fun TagesZelle(
     val bg = when {
         analyse == null -> Color.Transparent
         modus == 1 -> when (analyse.engpassStufe) {
-            2 -> Color(0xFFB3261E).copy(alpha = 0.35f)   // kritisch (rot)
-            1 -> Color(0xFFFFB300).copy(alpha = 0.35f)   // Engpass (gelb)
-            else -> Color(0xFF34C759).copy(alpha = 0.25f) // ok (gruen)
+            2 -> ConflictRed.copy(alpha = 0.35f)
+            1 -> PendingOrange.copy(alpha = 0.35f)
+            else -> Color(0xFF34C759).copy(alpha = 0.25f)
         }
         else -> MaterialTheme.colorScheme.surfaceVariant
     }
@@ -236,9 +250,9 @@ fun SchulterminDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
                 vm.fuegeSchulterminHinzu(
                     Schultermin(
                         datum = d.toString(),
-                            titel = titel.ifBlank { "Termin" },
-                            klassen = klassenText.split(",").map { it.trim() }.filter { it.isNotBlank() },
-                            stufen = stufenText.split(",").map { it.trim() }.filter { it.isNotBlank() },
+                        titel = titel.ifBlank { "Termin" },
+                        klassen = klassenText.split(",").map { it.trim() }.filter { it.isNotBlank() },
+                        stufen = stufenText.split(",").map { it.trim() }.filter { it.isNotBlank() },
                         typ = typ,
                     )
                 )
@@ -249,7 +263,6 @@ fun SchulterminDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
         title = { Text("Neuer Schultermin") },
         text = {
             Column {
-                // Datum per DatePicker statt Freitext (#Wunsch)
                 OutlinedButton(
                     onClick = { zeigeDatePicker = true },
                     modifier = Modifier.fillMaxWidth()
@@ -263,7 +276,7 @@ fun SchulterminDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
                     }
                 }
                 if (klassen.isNotEmpty()) {
-                    Text("Klassen antippen (oder unten frei eintragen):", style = MaterialTheme.typography.bodySmall)
+                    Text("Klassen antippen:", style = MaterialTheme.typography.bodySmall)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         klassen.forEach { k ->
                             FilterChip(
@@ -284,5 +297,3 @@ fun SchulterminDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
         }
     )
 }
-
-

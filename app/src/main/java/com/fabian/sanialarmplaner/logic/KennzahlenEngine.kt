@@ -20,7 +20,7 @@ data class PersonKennzahlen(
     val belastungsIndex: Double,        // relativ zum Gruppenmittel
     val kurzzeitBelastung: Double,      // exponentiell gewichtet (Halbwertszeit 28 T)
     val fairnessAbweichung: Double,     // (a_i - e_i) / (e_i + eps)
-    val wochentagBalance: Double,       // 0 = gleichmaessig, hoeher = ungleicher
+    val wochentagBalance: Double,       // 0 = gleichmaessig, hoeher = ungleicher,m
     val springerZusatzbelastung: Int,   // Dienste ausserhalb der Praeferenzen
     val einsatzquote: Double?,          // E_i / D_i (null = keine Daten)
     // 7-9: Planbarkeit

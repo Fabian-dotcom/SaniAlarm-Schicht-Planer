@@ -605,13 +605,17 @@ private fun versucheMitSeed(
         var i = index
         while (i < alleTage.size && (alleTage[i] in dienstplan || tagIdx(alleTage[i]) in gesperrteTage)) i++
 
-        // Fairness-Checks an den Blockgrenzen: erst wenn ALLE Slots von Block 1
-        // (inkl. gesperrter Tage) verarbeitet sind, gilt die Regel als geprüft.
-        // Bisher: exakter Index-Check, der bei Sperrtagen/Vorbelegungen uebersprungen
-        // wurde — deshalb kamen immer dieselben Teams durch.
+        // Fairness-Checks an den Blockgrenzen: gezaehlt wird ueber den PLAN
+        // (inkl. Vorbelegungen), nicht ueber den Suchindex — sonst werden mit
+        // Vorbelegungen die Checks uebersprungen (war NPE-Regression im Test).
         if (config.regeln.blockFairness) {
-            val anzahlVerarbeitet = (0 until i).count { tagIdx(alleTage[it]) !in gesperrteTage }
-            if (anzahlVerarbeitet == 10 && !pruefeBlockFairness(dienstplan, listOf(1, 2), aufstellung)) return null
+            val block1Voll = Wochen.alle.take(2).all { w ->
+                Wochentage.dienst.all { t ->
+                    val idx = tagIndex(w, t)
+                    idx in gesperrteTage || Schluessel(w, t) in dienstplan
+                }
+            }
+            if (block1Voll && !pruefeBlockFairness(dienstplan, listOf(1, 2), aufstellung)) return null
         }
         if (i == alleTage.size) {
             return if (!config.regeln.blockFairness || pruefeBlockFairness(dienstplan, listOf(3, 4), aufstellung)) dienstplan else null
