@@ -73,7 +73,7 @@ data class UiState(
     val planMonat: YearMonth = YearMonth.now(),
 )
 
-class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamStore) {
+class PlanerViewModel(private val store: ConfigStore, private val saniteamStore: SaniteamStore) {
 
     var state by mutableStateOf(UiState())
         private set
@@ -93,11 +93,24 @@ class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamSto
     // SANITEAM-DATEI (Personen, Teams, Historie)
     // ------------------------------------------------------------------
 
-    private var saniteamSpeicherOrt: SaniteamStore? = null
+    private var saniteamSpeicherOrt: SaniteamStore? = saniteamStore
 
-    /** Persistenz-Speicher injizieren (wird von MainActivity gesetzt). */
+    /** Persistenz-Speicher injizieren (optional, wird von MainActivity gesetzt). */
     fun setSaniteamStore(s: SaniteamStore) {
         saniteamSpeicherOrt = s
+    }
+
+    // ------------------------------------------------------------------
+    // BACKUPS (#50)
+    // ------------------------------------------------------------------
+
+    fun backupListe(): List<String> = saniteamStore.backups()
+
+    fun backupWiederherstellen(name: String): Boolean {
+        val d = saniteamStore.wiederherstellen(name) ?: return false
+        state = state.copy(datei = d)
+        configAusDatei()
+        return true
     }
 
     fun updateDatei(transform: (SaniteamDatei) -> SaniteamDatei) {

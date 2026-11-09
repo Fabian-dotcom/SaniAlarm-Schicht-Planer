@@ -200,20 +200,59 @@ class SaniteamSpeicher(private val json: Json = Json { prettyPrint = true; ignor
 
 class SaniteamStore(context: Context) {
     private val file = File(context.filesDir, "daten.saniteam")
+    private val backupOrdner = File(context.filesDir, "backups")
     private val speicher = SaniteamSpeicher()
+    private var letztesBackup: Long = 0L
 
     fun laden(): SaniteamDatei? = try {
         if (!file.exists()) null else speicher.deserialisieren(file.readText())
     } catch (_: Exception) {
-        null
+        // Hauptdatei beschaedigt? Letztes Backup versuchen (#50)
+        val backup = neuestesBackup()
+        backup?.let { speicher.deserialisieren(it.readText()) }
     }
 
     fun speichern(datei: SaniteamDatei) {
         try {
             file.parentFile?.mkdirs()
             file.writeText(speicher.serialisieren(datei))
+            vielleichtBackup()
         } catch (_: Exception) {
             // Schreibfehler still ignorieren; beim naechsten Speichern erneut versuchen
         }
+    }
+
+    /** Taegliches Backup: max. 1x pro Tag eine Kopie, max. 10 werden behalten. */
+    private fun vielleichtBackup() {
+        val jetzt = System.currentTimeMillis()
+        if (jetzt - letztesBackup < 24 * 60 * 60 * 1000L) return
+        letztesBackup = jetzt
+        try {
+            backupOrdner.mkdirs()
+            val stamp = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.GERMANY)
+                .format(java.util.Date(jetzt))
+            File(backupOrdner, "backup-$stamp.saniteam").writeText(file.readText())
+            // Alte Backups auf 10 begrenzen
+            backupOrdner.listFiles()
+                ?.sortedByDescending { it.name }
+                ?.drop(10)
+                ?.forEach { it.delete() }
+        } catch (_: Exception) {
+            // Backup-Fehler sind nicht kritisch
+        }
+    }
+
+    private fun neuestesBackup(): File? =
+        backupOrdner.listFiles()?.maxByOrNull { it.name }
+
+    /** Manuelle Backup-Liste fuer die Einstellungen (Wiederherstellen). */
+    fun backups(): List<String> =
+        backupOrdner.listFiles()?.sortedByDescending { it.name }?.map { it.name } ?: emptyList()
+
+    fun wiederherstellen(backupName: String): SaniteamDatei? {
+        val f = File(backupOrdner, backupName)
+        val d = speicher.deserialisieren(f.readText()) ?: return null
+        speichern(d)
+        return d
     }
 }

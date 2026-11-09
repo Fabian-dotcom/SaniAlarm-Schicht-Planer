@@ -564,6 +564,10 @@ fun EinstellungenTab(vm: PlanerViewModel) {
         Text("Einsatz-Limits pro Person", style = MaterialTheme.typography.titleMedium)
         EinsatzLimitEditor(vm)
 
+        Spacer(Modifier.height(16.dp))
+        Text("Backups", style = MaterialTheme.typography.titleMedium)
+        BackupEditor(vm)
+
         Spacer(Modifier.height(80.dp))
     }
 }
@@ -709,6 +713,41 @@ fun EinsatzLimitEditor(vm: PlanerViewModel) {
                 }
             }) { Text("Entfernen") }
         }
+    }
+}
+
+// ==============================================================================
+// BACKUP-EDITOR: taegliche automatische Backups anzeigen + wiederherstellen (#50)
+// ==============================================================================
+@Composable
+fun BackupEditor(vm: PlanerViewModel) {
+    var meldung by remember { mutableStateOf<String?>(null) }
+    var aktualisieren by remember { mutableStateOf(0) }
+    val backups = remember(aktualisieren) { vm.backupListe() }
+
+    Text(
+        "Es wird automatisch 1× täglich ein Backup im App-Speicher angelegt (max. 10). " +
+            "Falls die Daten mal beschädigt sind, kannst du hier wiederherstellen.",
+        style = MaterialTheme.typography.bodySmall
+    )
+    if (backups.isEmpty()) {
+        Text("Noch keine Backups vorhanden.", style = MaterialTheme.typography.bodySmall)
+    } else {
+        backups.take(5).forEach { name ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = {
+                    meldung = if (vm.backupWiederherstellen(name))
+                        "Backup '$name' wiederhergestellt."
+                    else "Wiederherstellen fehlgeschlagen."
+                    aktualisieren++
+                }) { Text("Wiederherstellen") }
+            }
+        }
+    }
+    meldung?.let {
+        Text(it, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary)
     }
 }
 
