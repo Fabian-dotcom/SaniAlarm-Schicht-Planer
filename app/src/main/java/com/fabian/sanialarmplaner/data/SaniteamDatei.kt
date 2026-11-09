@@ -233,27 +233,69 @@ class SaniteamSpeicher(private val json: Json = Json { prettyPrint = true; ignor
 // ==============================================================================
 
 class SaniteamStore(context: Context) {
-    private val file = File(context.filesDir, "daten.saniteam")
+    private val ordner = File(context.filesDir, "gruppen")
     private val backupOrdner = File(context.filesDir, "backups")
     private val speicher = SaniteamSpeicher()
     private var letztesBackup: Long = 0L
+    private val prefs = context.getSharedPreferences("sanialarm_gruppen", Context.MODE_PRIVATE)
 
-    fun laden(): SaniteamDatei? = try {
-        if (!file.exists()) null else speicher.deserialisieren(file.readText())
+    /** Alle Gruppen-Namen (Dateinamen ohne Endung). */
+    fun gruppen(): List<String> =
+        ordner.listFiles()?.map { it.name.removeSuffix(".saniteam") }?.sorted() ?: emptyList()
+
+    /** Aktive Gruppe (fuer Multi-Gruppen-Support #29). */
+    fun aktiveGruppe(): String = prefs.getString("aktiv", "Standard") ?: "Standard"
+
+    fun setzeAktiveGruppe(name: String) {
+        prefs.edit().putString("aktiv", name).apply()
+    }
+
+    private fun dateiFuer(gruppe: String) = File(ordner, "$gruppe.saniteam")
+
+    fun laden(): SaniteamDatei? = laden(aktiveGruppe())
+
+    fun laden(gruppe: String): SaniteamDatei? = try {
+        val f = dateiFuer(gruppe)
+        if (!f.exists()) {
+            // Migration: alte daten.saniteam (vor Gruppen-Support) uebernehmen
+            val alt = File(ordner.parentFile, "daten.saniteam")
+            if (alt.exists() && gruppe == "Standard") {
+                val d = speicher.deserialisieren(alt.readText())
+                if (d != null) {
+                    speichern(gruppe, d)
+                    alt.delete()
+                    d
+                } else null
+            } else null
+        } else speicher.deserialisieren(f.readText())
     } catch (_: Exception) {
-        // Hauptdatei beschaedigt? Letztes Backup versuchen (#50)
-        val backup = neuestesBackup()
-        backup?.let { speicher.deserialisieren(it.readText()) }
+        null
     }
 
     fun speichern(datei: SaniteamDatei) {
+        speichern(aktiveGruppe(), datei)
+    }
+
+    fun speichern(gruppe: String, datei: SaniteamDatei) {
         try {
-            file.parentFile?.mkdirs()
+            ordner.mkdirs()
+            val file = dateiFuer(gruppe)
             file.writeText(speicher.serialisieren(datei))
             vielleichtBackup()
         } catch (_: Exception) {
             // Schreibfehler still ignorieren; beim naechsten Speichern erneut versuchen
         }
+    }
+
+    fun neueGruppe(name: String): Boolean {
+        if (name.isBlank() || dateiFuer(name).exists()) return false
+        speichern(name, SaniteamDatei())
+        return true
+    }
+
+    fun loescheGruppe(name: String): Boolean {
+        if (name == "Standard") return false   // Standard bleibt immer
+        return try { dateiFuer(name).delete() } catch (_: Exception) { false }
     }
 
     /** Taegliches Backup: max. 1x pro Tag eine Kopie, max. 10 werden behalten. */
@@ -265,7 +307,9 @@ class SaniteamStore(context: Context) {
             backupOrdner.mkdirs()
             val stamp = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.GERMANY)
                 .format(java.util.Date(jetzt))
-            File(backupOrdner, "backup-$stamp.saniteam").writeText(file.readText())
+            File(backupOrdner, "backup-$stamp-${aktiveGruppe()}.saniteam").writeText(
+                dateiFuer(aktiveGruppe()).readText()
+            )
             // Alte Backups auf 10 begrenzen
             backupOrdner.listFiles()
                 ?.sortedByDescending { it.name }

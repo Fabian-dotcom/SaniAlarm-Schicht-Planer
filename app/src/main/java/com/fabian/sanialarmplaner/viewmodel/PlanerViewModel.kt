@@ -101,6 +101,40 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
     }
 
     // ------------------------------------------------------------------
+    // MEHRERE GRUPPEN (#29)
+    // ------------------------------------------------------------------
+
+    fun gruppen(): List<String> = saniteamStore.gruppen()
+
+    fun aktiveGruppe(): String = saniteamStore.aktiveGruppe()
+
+    fun gruppeWechseln(name: String) {
+        saniteamStore.setzeAktiveGruppe(name)
+        state = state.copy(
+            datei = saniteamStore.laden(name) ?: SaniteamDatei(),
+            plan = emptyList(),
+            kranke = emptySet(),
+            abwesenheiten = emptyMap(),
+            vorbelegungen = emptyMap(),
+            gesperrteTage = emptySet(),
+            hinweise = listOf("Gruppe '$name' geladen"),
+        )
+        configAusDatei()
+    }
+
+    fun neueGruppe(name: String): Boolean {
+        val ok = saniteamStore.neueGruppe(name.trim())
+        if (ok) gruppeWechseln(name.trim())
+        return ok
+    }
+
+    fun loescheGruppe(name: String): Boolean {
+        val ok = saniteamStore.loescheGruppe(name)
+        if (ok && name == aktiveGruppe()) gruppeWechseln("Standard")
+        return ok
+    }
+
+    // ------------------------------------------------------------------
     // BACKUPS (#50)
     // ------------------------------------------------------------------
 

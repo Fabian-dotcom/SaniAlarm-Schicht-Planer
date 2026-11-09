@@ -574,6 +574,10 @@ fun EinstellungenTab(vm: PlanerViewModel) {
         EinsatzLimitEditor(vm)
 
         Spacer(Modifier.height(16.dp))
+        Text("Gruppen", style = MaterialTheme.typography.titleMedium)
+        GruppenEditor(vm)
+
+        Spacer(Modifier.height(16.dp))
         Text("Backups", style = MaterialTheme.typography.titleMedium)
         BackupEditor(vm)
 
@@ -722,6 +726,56 @@ fun EinsatzLimitEditor(vm: PlanerViewModel) {
                 }
             }) { Text("Entfernen") }
         }
+    }
+}
+
+// ==============================================================================
+// GRUPPEN-EDITOR: mehrere .saniteam-Gruppen verwalten (#29)
+// ==============================================================================
+@Composable
+fun GruppenEditor(vm: PlanerViewModel) {
+    var aktualisieren by remember { mutableStateOf(0) }
+    var neueName by remember { mutableStateOf("") }
+    var meldung by remember { mutableStateOf<String?>(null) }
+    val gruppen = remember(aktualisieren) { vm.gruppen() }
+    val aktiv = remember(aktualisieren) { vm.aktiveGruppe() }
+
+    Text(
+        "Falls die AG in mehrere unabhängige Gruppen zerfällt (z.B. nach Wochentag), kann jede Gruppe ihre eigene .saniteam-Datei haben.",
+        style = MaterialTheme.typography.bodySmall
+    )
+    Spacer(Modifier.height(6.dp))
+    gruppen.forEach { g ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(selected = g == aktiv, onClick = { vm.gruppeWechseln(g); aktualisieren++ })
+            Text(g, Modifier.weight(1f))
+            if (g != "Standard") {
+                TextButton(onClick = {
+                    meldung = if (vm.loescheGruppe(g)) "Gruppe '$g' gelöscht." else "Löschen fehlgeschlagen."
+                    aktualisieren++
+                }) { Text("×", color = MaterialTheme.colorScheme.error) }
+            }
+        }
+    }
+    Spacer(Modifier.height(4.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = neueName,
+            onValueChange = { neueName = it },
+            label = { Text("Neue Gruppe") },
+            modifier = Modifier.weight(1f),
+            singleLine = true
+        )
+        Button(onClick = {
+            meldung = if (vm.neueGruppe(neueName)) "Gruppe '${neueName.trim()}' angelegt." else "Name ungültig oder bereits vorhanden."
+            if (meldung!!.startsWith("Gruppe")) neueName = ""
+            aktualisieren++
+        }, enabled = neueName.isNotBlank()) { Text("Anlegen") }
+    }
+    meldung?.let {
+        Text(it, style = MaterialTheme.typography.bodySmall,
+            color = if (it.startsWith("Gruppe") && it.contains("angelegt")) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.error)
     }
 }
 
