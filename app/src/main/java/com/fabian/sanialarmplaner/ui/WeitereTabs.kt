@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.fabian.sanialarmplaner.data.Person
@@ -99,12 +101,16 @@ fun PersonenTab(vm: PlanerViewModel) {
             Text("Keine Treffer für '$suche'.", style = MaterialTheme.typography.bodySmall)
         }
         if (gridAnsicht) {
+            // Team-Zuordnung für Kacheln (Name -> Teamnamen)
+            val personZuTeams = state.config.teams.entries
+                .flatMap { (team, mitglieder) -> mitglieder.map { it to team } }
+                .groupBy({ it.first }, { it.second })
             // Kacheln: 2 Spalten
             val zeilen = sortierte.chunked(2)
             zeilen.forEach { paarzeile ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     paarzeile.forEach { p ->
-                        PersonKachel(p, Modifier.weight(1f)) { bearbeite = p }
+                        PersonKachel(p, Modifier.weight(1f), personZuTeams[p.vollerName()].orEmpty()) { bearbeite = p }
                     }
                     if (paarzeile.size == 1) Spacer(Modifier.weight(1f))
                 }
@@ -150,21 +156,58 @@ fun PersonenTab(vm: PlanerViewModel) {
 }
 
 @Composable
-fun PersonKachel(p: Person, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun PersonKachel(p: Person, modifier: Modifier = Modifier, teams: List<String> = emptyList(), onClick: () -> Unit) {
     Card(modifier = modifier, onClick = onClick) {
         Column(Modifier.padding(10.dp)) {
-            Text(p.vollerName(), style = MaterialTheme.typography.titleSmall, maxLines = 1)
-            Text(
-                buildList {
-                    if (p.klasse.isNotBlank()) add(p.klasse)
-                    if (p.ausbildungAbgeschlossen) add("ausgebildet")
-                    if (!p.aktiv) add("INAKTIV")
-                }.joinToString(" · ").ifBlank { "Tap fuer Details" },
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 2,
-                color = if (p.aktiv) MaterialTheme.colorScheme.onSurfaceVariant
-                        else MaterialTheme.colorScheme.error
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Ausbildungs-Badge (Chip statt Emoji, barrierefrei beschriftet)
+                if (p.ausbildungAbgeschlossen) {
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Text(
+                            "AUSB",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                                .semantics { contentDescription = "Ausbildung abgeschlossen" },
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    p.vollerName(),
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            if (p.klasse.isNotBlank() || !p.aktiv) {
+                Text(
+                    buildList {
+                        if (p.klasse.isNotBlank()) add(p.klasse)
+                        if (!p.aktiv) add("INAKTIV")
+                    }.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    color = if (p.aktiv) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.error
+                )
+            }
+            // Team-Zugehoerigkeit kompakt darunter
+            if (teams.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    teams.joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
         }
     }
 }
