@@ -88,8 +88,9 @@ data class WiederkehrendeVorbelegung(
 data class Schultermin(
     val datum: String,             // "2026-11-12"
     val titel: String = "Klassenarbeit",
-    val klassen: List<String> = emptyList(),   // betroffene Klassen, z.B. ["10b"]
-    /** Personen direkt betroffen (leer = alle aus den genannten Klassen) */
+    val klassen: List<String> = emptyList(),   // betroffene Klassen, z.B. ["10a"]
+    val stufen: List<String> = emptyList(),    // Jahrgangsstufen, z.B. ["10"]
+    /** Personen direkt betroffen (leer = alle aus den genannten Klassen/Stufen) */
     val personNamen: List<String> = emptyList(),
     /** Typ: "Klassenarbeit", "Ferien", "Feiertag", "Sonstiges" */
     val typ: String = "Klassenarbeit",

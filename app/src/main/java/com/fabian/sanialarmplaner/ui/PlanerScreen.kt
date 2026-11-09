@@ -1,4 +1,4 @@
-package com.fabian.sanialarmplaner.ui
+﻿package com.fabian.sanialarmplaner.ui
 
 import android.content.Intent
 import android.net.Uri
@@ -38,285 +38,69 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 // ==============================================================================
-// HAUPT-SCREEN MIT SCROLLBARER TAB-LEISTE (Fix fuer abgeschnittene Woerter)
+// HAUPT-SCREEN: Bottom-Navigation (5 Kernbereiche) + "Mehr"-Sheet
 // ==============================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlanerScreen(vm: PlanerViewModel) {
     val state = vm.state
-    var tab by remember { mutableStateOf(0) }
-    val tabs = listOf("Start", "Plan", "Ausfälle", "Vorbelegung", "Personen", "Kalender", "Statistik", "Einstellungen")
+    var seite by remember { mutableStateOf("profil") }   // profil|plan|personen|kalender|mehr
+    var mehrSheet by remember { mutableStateOf(false) }
+    var unterseite by remember { mutableStateOf("ausfaelle") }   // innerhalb von "Mehr"
     val coroutineScope = rememberCoroutineScope()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Sani Alarm Planer") }) }
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = seite == "profil", onClick = { seite = "profil" },
+                    icon = { Text("Mein", style = MaterialTheme.typography.labelMedium) },
+                    label = { Text("Profil") }
+                )
+                NavigationBarItem(
+                    selected = seite == "plan", onClick = { seite = "plan" },
+                    icon = { Text("Plan", style = MaterialTheme.typography.labelMedium) },
+                    label = { Text("Plan") }
+                )
+                NavigationBarItem(
+                    selected = seite == "personen", onClick = { seite = "personen" },
+                    icon = { Text("Team", style = MaterialTheme.typography.labelMedium) },
+                    label = { Text("Kartei") }
+                )
+                NavigationBarItem(
+                    selected = seite == "kalender", onClick = { seite = "kalender" },
+                    icon = { Text("Kal.", style = MaterialTheme.typography.labelMedium) },
+                    label = { Text("Kalender") }
+                )
+                NavigationBarItem(
+                    selected = seite == "mehr", onClick = { seite = "mehr" },
+                    icon = { Text("â€¦", style = MaterialTheme.typography.labelMedium) },
+                    label = { Text("Mehr") }
+                )
+            }
+        }
     ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            // ScrollableTabRow: lange Tab-Namen werden nicht mehr abgeschnitten
-            ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
-                tabs.forEachIndexed { i, t ->
-                    Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t) })
-                }
-            }
-            Box(Modifier.weight(1f)) {
-                when (tab) {
-                    0 -> HomeTab(vm, gotoTab = { tab = it })
-                    1 -> PlanTab(vm, onWeiter = { tab = 2 }, onPersonen = { tab = 4 })
-                    2 -> AusfaelleTab(vm)
-                    3 -> VorbelegungTab(vm)
-                    4 -> PersonenTab(vm)
-                    5 -> KalenderTab(vm)
-                    6 -> StatistikTab(vm)
-                    7 -> EinstellungenTab(vm)
-                }
-            }
-            // Generieren-Button immer unten sichtbar
-            if (tab in listOf(1, 2, 3)) {
-                Button(
-                    onClick = { coroutineScope.launch { vm.generiere() } },
-                    enabled = !state.laeuft,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp)
-                ) { Text(if (state.laeuft) "Rechnet…" else "Plan generieren") }
-            }
-        }
-    }
-}
-
-// ==============================================================================
-// TAB 0: HOME (iOS-inspiriert: grosser Titel, inset-grouped Listen, Icon-Badges)
-// ==============================================================================
-@Composable
-fun HomeTab(vm: PlanerViewModel, gotoTab: (Int) -> Unit) {
-    val state = vm.state
-    val anzahlPersonen = state.datei.personen.count { it.aktiv }
-    val anzahlTeams = state.config.teams.size
-    val anzahlKrank = state.kranke.size
-    val hatPlan = state.plan.isNotEmpty()
-
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-            .padding(vertical = 8.dp, horizontal = 16.dp)
-    ) {
-        // Grosser iOS-artiger Titel
-        Text(
-            "Sani Alarm",
-            style = MaterialTheme.typography.displaySmall,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-        Text(
-            "Dienstplan · Statistik · Ausfälle",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(Modifier.height(20.dp))
-
-        // iOS-Statstrip: drei Werte in einer grouped Card
-        IosSection("Übersicht") {
-            Row(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-                HomeStat("Personen", "$anzahlPersonen", Modifier.weight(1f))
-                HomeDivider()
-                HomeStat("Teams", "$anzahlTeams", Modifier.weight(1f))
-                HomeDivider()
-                HomeStat("Krank", "$anzahlKrank", Modifier.weight(1f))
-            }
-        }
-
-        Spacer(Modifier.height(20.dp))
-
-        // Naechster Dienst prominent
-        if (hatPlan) {
-            IosSection("Nächster Dienst") {
-                val naechster = state.plan.first()
-                Column(Modifier.padding(14.dp)) {
-                    Text(
-                        "Woche ${naechster.woche} · ${naechster.tag}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
-                    )
-                    Text(
-                        naechster.mitglieder.joinToString() +
-                            (naechster.springer?.let { "  +  $it" } ?: ""),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            Spacer(Modifier.height(20.dp))
-        }
-
-        // Schnellstart als inset-grouped Liste mit runden Icon-Badges
-        IosSection("Schnellstart") {
-            IosRow(icon = "👤", bg = iosBlue, titel = "Personen",
-                text = if (anzahlPersonen == 0) "Noch keine — hier starten" else "$anzahlPersonen aktiv",
-                badge = if (anzahlPersonen > 0) "✓" else "", onClick = { gotoTab(4) })
-            IosSeparator()
-            IosRow(icon = "🤒", bg = iosOrange, titel = "Ausfälle",
-                text = if (anzahlKrank == 0) "Niemand krank" else "$anzahlKrank krank gemeldet",
-                badge = if (anzahlKrank > 0) "✓" else "", onClick = { gotoTab(2) })
-            IosSeparator()
-            IosRow(icon = "🗓️", bg = iosGreen, titel = "Plan",
-                text = if (hatPlan) "Bereit — ansehen" else "Noch kein Plan diesen Monat",
-                badge = if (hatPlan) "✓" else "", onClick = { gotoTab(1) })
-        }
-
-        Spacer(Modifier.height(20.dp))
-
-        // Statistik-Vorschau auf dem Start-Screen (#46)
-        val stats = vm.statistik()
-        if (stats.isNotEmpty()) {
-            IosSection("Statistik") {
-                val top = stats.take(3)
-                top.forEachIndexed { i, s ->
-                    if (i > 0) IosSeparator()
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(s.name, Modifier.weight(1f))
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text("%.2f".format(s.belastungsIndex),
-                                style = MaterialTheme.typography.titleSmall)
-                            Text("${s.geplant + s.historisch} Einsätze · ${s.monateDabei} Mon.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box(Modifier.fillMaxSize().padding(padding)) {
+            when (seite) {
+                "profil" -> ProfilTab(vm, goto = { ziel ->
+                    when (ziel) {
+                        "plan" -> seite = "plan"
+                        "personen" -> seite = "personen"
+                        "kalender" -> seite = "kalender"
+                        "ausfaelle", "vorbelegung", "statistik", "einstellungen" -> {
+                            unterseite = ziel; seite = "mehr"
                         }
                     }
-                }
-                IosSeparator()
-                IosRow(icon = "📊", bg = iosPurple, titel = "Alle Statistiken",
-                    text = "Belastungsindex, Historie, Zeitraum", onClick = { gotoTab(6) })
+                })
+                "plan" -> PlanTab(vm, onWeiter = { unterseite = "ausfaelle"; seite = "mehr" }, onPersonen = { seite = "personen" })
+                "personen" -> PersonenTab(vm)
+                "kalender" -> KalenderTab(vm)
+                "mehr" -> MehrTab(vm, unterseite, onUnterseite = { unterseite = it })
             }
-            Spacer(Modifier.height(20.dp))
-        }
-
-        IosSection("Weitere Bereiche") {
-            IosRow(icon = "📅", bg = iosBlue, titel = "Kalender",
-                text = "Schultermine & Heatmap", onClick = { gotoTab(5) })
-            IosSeparator()
-            IosRow(icon = "📊", bg = iosPurple, titel = "Statistik",
-                text = "Belastungsindex & Historie", onClick = { gotoTab(6) })
-            IosSeparator()
-            IosRow(icon = "⚙️", bg = iosGray, titel = "Einstellungen",
-                text = "Regeln, Sperrtage, Daten", onClick = { gotoTab(7) })
-        }
-
-        Spacer(Modifier.height(40.dp))
-    }
-}
-
-private val iosBlue = Color(0xFF007AFF)
-private val iosGreen = Color(0xFF34C759)
-private val iosOrange = Color(0xFFFF9500)
-private val iosPurple = Color(0xFFAF52DE)
-private val iosGray = Color(0xFF8E8E93)
-
-@Composable
-fun IosSection(titel: String, content: @Composable ColumnScope.() -> Unit) {
-    Column {
-        Text(
-            titel.uppercase(),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 16.dp, bottom = 6.dp)
-        )
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large,
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-        ) {
-            Column(content = content)
         }
     }
 }
 
-@Composable
-fun IosRow(icon: String, bg: Color, titel: String, text: String, onClick: () -> Unit, badge: String = "") {
-    Row(
-        Modifier.fillMaxWidth()
-            .clickableNoRipple(onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Runder Icon-Badge (iOS-Stil)
-        Box(
-            Modifier.size(34.dp).background(bg, androidx.compose.foundation.shape.CircleShape),
-            contentAlignment = Alignment.Center
-        ) { Text(icon, fontSize = 16.sp) }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(titel, style = MaterialTheme.typography.bodyLarge)
-            Text(text, style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (badge.isNotEmpty()) {
-            Text(badge, color = iosGreen, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-            Spacer(Modifier.width(8.dp))
-        }
-        Text("›", style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-fun IosSeparator() {
-    HorizontalDivider(
-        modifier = Modifier.padding(start = 60.dp),
-        thickness = 0.5.dp,
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-    )
-}
-
-@Composable
-private fun HomeDivider() {
-    Box(Modifier.width(0.5.dp).height(40.dp).background(MaterialTheme.colorScheme.outlineVariant))
-}
-
-private fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier =
-    this.composed { clickable(onClick = onClick) }
-
-@Composable
-fun HomeStat(label: String, wert: String, modifier: Modifier = Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(wert, style = MaterialTheme.typography.headlineSmall,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-        Text(label, style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-fun HomeSchritt(nummer: Int, titel: String, beschreibung: String, erledigt: Boolean, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
-    ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                if (erledigt) "✓" else "$nummer",
-                style = MaterialTheme.typography.titleMedium,
-                color = if (erledigt) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.width(28.dp)
-            )
-            Column(Modifier.weight(1f)) {
-                Text(titel, style = MaterialTheme.typography.bodyLarge)
-                Text(beschreibung, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Text("›", style = MaterialTheme.typography.titleLarge)
-        }
-    }
-}
 
 // ==============================================================================
 // TAB 1: PLAN
@@ -336,7 +120,7 @@ fun PlanTab(vm: PlanerViewModel, onWeiter: () -> Unit, onPersonen: () -> Unit) {
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onWeiter, modifier = Modifier.weight(1f)) {
-                Text("Ausfälle")
+                Text("AusfÃ¤lle")
             }
             OutlinedButton(onClick = onPersonen, modifier = Modifier.weight(1f)) {
                 Text("Kartei")
@@ -348,7 +132,7 @@ fun PlanTab(vm: PlanerViewModel, onWeiter: () -> Unit, onPersonen: () -> Unit) {
                 Column(Modifier.padding(12.dp)) {
                     Text("Noch keine Daten", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "Lege zuerst Personen in der Kartei an (Tab \"Personen\") oder importiere eine .saniteam-Datei (Einstellungen). Die Teams werden dann automatisch aus den Partnerwünschen gebildet.",
+                        "Lege zuerst Personen in der Kartei an (Tab \"Personen\") oder importiere eine .saniteam-Datei (Einstellungen). Die Teams werden dann automatisch aus den PartnerwÃ¼nschen gebildet.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -369,7 +153,7 @@ fun PlanTab(vm: PlanerViewModel, onWeiter: () -> Unit, onPersonen: () -> Unit) {
             horizontalArrangement = Arrangement.Center
         ) {
             IconButton(onClick = { vm.wechselPlanMonat(-1) }, enabled = !state.laeuft) {
-                Text("‹", style = MaterialTheme.typography.titleLarge)
+                Text("â€¹", style = MaterialTheme.typography.titleLarge)
             }
             val monatsName = state.planMonat.month
                 .getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.GERMANY)
@@ -380,7 +164,7 @@ fun PlanTab(vm: PlanerViewModel, onWeiter: () -> Unit, onPersonen: () -> Unit) {
                 modifier = Modifier.padding(horizontal = 12.dp)
             )
             IconButton(onClick = { vm.wechselPlanMonat(1) }, enabled = !state.laeuft) {
-                Text("›", style = MaterialTheme.typography.titleLarge)
+                Text("â€º", style = MaterialTheme.typography.titleLarge)
             }
         }
 
@@ -395,10 +179,10 @@ fun PlanTab(vm: PlanerViewModel, onWeiter: () -> Unit, onPersonen: () -> Unit) {
                         (context as? com.fabian.sanialarmplaner.MainActivity)?.planeErinnerungenFuerPlan()
                     },
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-                ) { Text("🔔 Erinnerungen für diesen Plan aktivieren") }
+                ) { Text("ðŸ”” Erinnerungen fÃ¼r diesen Plan aktivieren") }
             } else {
                 Text(
-                    "Erinnerungen sind für diesen Plan aktiv (24 h vorher).",
+                    "Erinnerungen sind fÃ¼r diesen Plan aktiv (24 h vorher).",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 4.dp)
                 )
@@ -439,7 +223,7 @@ fun PlanTab(vm: PlanerViewModel, onWeiter: () -> Unit, onPersonen: () -> Unit) {
 private fun DiensteTauschenDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
     val plan = vm.state.plan.sortedWith(compareBy({ it.woche }, { Wochentage.dienst.indexOf(it.tag) }))
     val optionen = plan.associateBy {
-        "Woche ${it.woche} · ${it.tag} — ${it.mitglieder.joinToString()}"
+        "Woche ${it.woche} Â· ${it.tag} â€” ${it.mitglieder.joinToString()}"
     }
     var ersterName by remember(plan) { mutableStateOf(optionen.keys.firstOrNull().orEmpty()) }
     var zweiterName by remember(plan) {
@@ -461,7 +245,7 @@ private fun DiensteTauschenDialog(vm: PlanerViewModel, onSchliessen: () -> Unit)
                 modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Wähle die beiden Dienste. Der Tausch wird nur übernommen, wenn der gesamte Plan regelkonform bleibt.")
+                Text("WÃ¤hle die beiden Dienste. Der Tausch wird nur Ã¼bernommen, wenn der gesamte Plan regelkonform bleibt.")
                 LabeledDropdown(
                     "Erster Dienst", optionen.keys.toList(), ersterName, Modifier.fillMaxWidth()
                 ) {
@@ -489,7 +273,7 @@ private fun DiensteTauschenDialog(vm: PlanerViewModel, onSchliessen: () -> Unit)
                         Text("${zweiterDienst!!.mitglieder.joinToString()} stimmen dem Tausch zu.")
                     }
                     Text(
-                        "Die Zustimmung wird lokal auf diesem Gerät bestätigt.",
+                        "Die Zustimmung wird lokal auf diesem GerÃ¤t bestÃ¤tigt.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -503,7 +287,7 @@ private fun DiensteTauschenDialog(vm: PlanerViewModel, onSchliessen: () -> Unit)
                 val erste = optionen[ersterName]
                 val zweite = optionen[zweiterName]
                 if (erste == null || zweite == null) {
-                    fehler = listOf("Bitte zwei Dienste auswählen.")
+                    fehler = listOf("Bitte zwei Dienste auswÃ¤hlen.")
                 } else {
                     val ergebnis = vm.tauscheDienste(
                         erste.woche to erste.tag,
@@ -511,7 +295,7 @@ private fun DiensteTauschenDialog(vm: PlanerViewModel, onSchliessen: () -> Unit)
                     )
                     if (ergebnis.isEmpty()) onSchliessen() else fehler = ergebnis
                 }
-            }) { Text("Prüfen und tauschen") }
+            }) { Text("PrÃ¼fen und tauschen") }
         },
         dismissButton = {
             TextButton(onClick = onSchliessen) { Text("Abbrechen") }
@@ -640,7 +424,7 @@ fun KalenderZelle(e: PlanEintrag, modifier: Modifier = Modifier) {
     ) {
         Column(Modifier.padding(6.dp)) {
             if (e.gesperrt) {
-                Text("—", style = MaterialTheme.typography.bodySmall,
+                Text("â€”", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 return@Column
             }
@@ -675,10 +459,10 @@ fun PlanZeile(e: PlanEintrag) {
             Text("${e.tag}: ${e.mitglieder.joinToString()}", style = MaterialTheme.typography.bodyLarge)
             Text(
                 buildString {
-                    append("${e.mitglieder.size}er-Team · ${e.paar}")
+                    append("${e.mitglieder.size}er-Team Â· ${e.paar}")
                     e.springer?.let { append(" + Springer $it") }
-                    if (e.vorbelegt) append(" · VORBELEGT")
-                    e.vertretungHinweis?.let { append(" · Vertretung: $it") }
+                    if (e.vorbelegt) append(" Â· VORBELEGT")
+                    e.vertretungHinweis?.let { append(" Â· Vertretung: $it") }
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -702,15 +486,15 @@ fun AusfaelleTab(vm: PlanerViewModel) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)
     ) {
-        Text("Wer fällt aus?", style = MaterialTheme.typography.titleMedium)
+        Text("Wer fÃ¤llt aus?", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Person abhaken = krank/ganz weg. Über das Calendar-Symbol kannst du pro Person einzelne Tage markieren (tagesgenau, z.B. Urlaub).",
+            "Person abhaken = krank/ganz weg. Ãœber das Calendar-Symbol kannst du pro Person einzelne Tage markieren (tagesgenau, z.B. Urlaub).",
             style = MaterialTheme.typography.bodySmall
         )
         Spacer(Modifier.height(8.dp))
 
         if (allePersonen.isEmpty()) {
-            Text("Keine Personen vorhanden – zuerst Kartei füllen.", style = MaterialTheme.typography.bodySmall)
+            Text("Keine Personen vorhanden â€“ zuerst Kartei fÃ¼llen.", style = MaterialTheme.typography.bodySmall)
         }
 
         allePersonen.forEach { person ->
@@ -744,7 +528,7 @@ fun AusfaelleTab(vm: PlanerViewModel) {
                                     Uri.parse("mailto:${personObj!!.email}")))
                             }) { Text("Mail") }
                         }
-                        TextButton(onClick = { dialogPerson = person }) { Text("Tage…") }
+                        TextButton(onClick = { dialogPerson = person }) { Text("Tageâ€¦") }
                         TextButton(
                             enabled = state.plan.any { person in it.mitglieder },
                             onClick = { tauschPerson = person },
@@ -759,7 +543,7 @@ fun AusfaelleTab(vm: PlanerViewModel) {
         }
         Spacer(Modifier.height(16.dp))
         OutlinedButton(onClick = { vm.allesZuruecksetzen() }, modifier = Modifier.fillMaxWidth()) {
-            Text("Auswahl zurücksetzen")
+            Text("Auswahl zurÃ¼cksetzen")
         }
         Spacer(Modifier.height(80.dp))
     }
@@ -834,7 +618,7 @@ private fun TauschDialog(vm: PlanerViewModel, person: String, onSchliessen: () -
                         FilterChip(
                             selected = meinDienst == (e.woche to e.tag),
                             onClick = { meinDienst = e.woche to e.tag },
-                            label = { Text("W${e.woche} · ${e.tag}") },
+                            label = { Text("W${e.woche} Â· ${e.tag}") },
                         )
                     }
                     Spacer(Modifier.height(4.dp))
@@ -843,18 +627,18 @@ private fun TauschDialog(vm: PlanerViewModel, person: String, onSchliessen: () -
                         FilterChip(
                             selected = partnerDienst == (e.woche to e.tag),
                             onClick = { partnerDienst = e.woche to e.tag },
-                            label = { Text("W${e.woche} · ${e.tag} (${e.mitglieder.joinToString()})") },
+                            label = { Text("W${e.woche} Â· ${e.tag} (${e.mitglieder.joinToString()})") },
                         )
                     }
                     Spacer(Modifier.height(4.dp))
                     if (partner != null && dienstA != null && dienstB != null) {
                         val probleme = vm.pruefeTausch(dienstA, dienstB, person, partner)
                         if (probleme.isEmpty()) {
-                            Text("✓ Tausch mit $partner ist regelkonform.",
+                            Text("âœ“ Tausch mit $partner ist regelkonform.",
                                 color = MaterialTheme.colorScheme.primary)
                         } else {
                             Text("Konflikte:", color = MaterialTheme.colorScheme.error)
-                            probleme.forEach { Text("• $it", color = MaterialTheme.colorScheme.error) }
+                            probleme.forEach { Text("â€¢ $it", color = MaterialTheme.colorScheme.error) }
                         }
                     }
                     meldung?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
@@ -866,7 +650,7 @@ private fun TauschDialog(vm: PlanerViewModel, person: String, onSchliessen: () -
                 Button(onClick = {
                     meldung = if (vm.fuehreTauschAus(dienstA, dienstB, person, partner)) {
                         onSchliessen()
-                        "Tausch durchgeführt."
+                        "Tausch durchgefÃ¼hrt."
                     } else "Tausch verletzt Regeln."
                 }) { Text("Tauschen") }
             }
@@ -889,13 +673,13 @@ private fun VertretungDialog(vm: PlanerViewModel, person: String, onSchliessen: 
 
     AlertDialog(
         onDismissRequest = onSchliessen,
-        title = { Text("Vertretung für $person") },
+        title = { Text("Vertretung fÃ¼r $person") },
         text = {
             Column(
                 modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text("Wähle den geplanten Dienst und eine verfügbare Vertretung.")
+                Text("WÃ¤hle den geplanten Dienst und eine verfÃ¼gbare Vertretung.")
                 if (dienste.isEmpty()) {
                     Text("Diese Person ist im aktuellen Plan nicht eingeteilt.")
                 } else {
@@ -903,10 +687,10 @@ private fun VertretungDialog(vm: PlanerViewModel, person: String, onSchliessen: 
                         FilterChip(
                             selected = ausgewaehlterSchluessel == (eintrag.woche to eintrag.tag),
                             onClick = { ausgewaehlterSchluessel = eintrag.woche to eintrag.tag },
-                            label = { Text("Woche ${eintrag.woche} · ${eintrag.tag}") },
+                            label = { Text("Woche ${eintrag.woche} Â· ${eintrag.tag}") },
                         )
                     }
-                    Text("Vorschläge (Springer und niedrigere Belastung zuerst):",
+                    Text("VorschlÃ¤ge (Springer und niedrigere Belastung zuerst):",
                         style = MaterialTheme.typography.titleSmall)
                     if (vorschlaege.isEmpty()) {
                         Text("Keine regelkonforme Vertretung gefunden.")
@@ -921,7 +705,7 @@ private fun VertretungDialog(vm: PlanerViewModel, person: String, onSchliessen: 
                                     Text(vorschlag.name, style = MaterialTheme.typography.bodyMedium)
                                     Text(
                                         buildString {
-                                            if (vorschlag.ausSpringerReserve) append("Springer-Reserve · ")
+                                            if (vorschlag.ausSpringerReserve) append("Springer-Reserve Â· ")
                                             append("Index %.2f".format(vorschlag.belastungsIndex))
                                         },
                                         style = MaterialTheme.typography.bodySmall,
@@ -934,7 +718,7 @@ private fun VertretungDialog(vm: PlanerViewModel, person: String, onSchliessen: 
                                     ) {
                                         onSchliessen()
                                     } else {
-                                        meldung = "Der Vorschlag ist nicht mehr verfügbar. Bitte erneut prüfen."
+                                        meldung = "Der Vorschlag ist nicht mehr verfÃ¼gbar. Bitte erneut prÃ¼fen."
                                     }
                                 }) { Text("Einsetzen") }
                             }
@@ -942,7 +726,7 @@ private fun VertretungDialog(vm: PlanerViewModel, person: String, onSchliessen: 
                     }
                 }
                 Text(
-                    "Die Änderung gilt nur für den aktuell angezeigten Plan.",
+                    "Die Ã„nderung gilt nur fÃ¼r den aktuell angezeigten Plan.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -969,13 +753,13 @@ fun VorbelegungTab(vm: PlanerViewModel) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)) {
         Text("Bereits besetzte Schichten", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Wähle feste Schichten aus (z.B. wenn Montag & Dienstag schon gesetzt sind).",
+            "WÃ¤hle feste Schichten aus (z.B. wenn Montag & Dienstag schon gesetzt sind).",
             style = MaterialTheme.typography.bodySmall
         )
         Spacer(Modifier.height(8.dp))
 
         if (state.config.teams.isEmpty()) {
-            Text("Keine Teams – zuerst Personen anlegen.", color = MaterialTheme.colorScheme.error)
+            Text("Keine Teams â€“ zuerst Personen anlegen.", color = MaterialTheme.colorScheme.error)
             Spacer(Modifier.height(80.dp))
             return
         }
@@ -999,7 +783,7 @@ fun VorbelegungTab(vm: PlanerViewModel) {
         Button(
             onClick = { vm.fuegeVorbelegungHinzu(woche, tag, paar, springer) },
             enabled = paar.isNotEmpty(), modifier = Modifier.fillMaxWidth()
-        ) { Text("Hinzufügen") }
+        ) { Text("HinzufÃ¼gen") }
 
         Spacer(Modifier.height(16.dp))
         // ---------------- Wiederkehrende Muster (#36) -----------------------
@@ -1009,7 +793,7 @@ fun VorbelegungTab(vm: PlanerViewModel) {
         // ---------------- Gesperrte Tage (kein Dienst, z.B. schulfrei) ------
         Text("Kein Dienst (z.B. schulfrei)", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Markiere Tage, an denen GAR KEIN Dienst stattfindet. Der Plan lässt diese Tage leer.",
+            "Markiere Tage, an denen GAR KEIN Dienst stattfindet. Der Plan lÃ¤sst diese Tage leer.",
             style = MaterialTheme.typography.bodySmall
         )
         Spacer(Modifier.height(6.dp))
@@ -1041,7 +825,7 @@ fun VorbelegungTab(vm: PlanerViewModel) {
                             "W${key.first}, ${key.second}: ${d.paar}" + (d.springer?.let { " + $it" } ?: ""),
                             Modifier.weight(1f)
                         )
-                        TextButton(onClick = { vm.loescheVorbelegung(key) }) { Text("Löschen") }
+                        TextButton(onClick = { vm.loescheVorbelegung(key) }) { Text("LÃ¶schen") }
                     }
                 }
             }
@@ -1061,7 +845,7 @@ fun WiederkehrendEditor(vm: PlanerViewModel) {
 
     Text("Wiederkehrende Muster", style = MaterialTheme.typography.titleMedium)
     Text(
-        "z.B. 'Jede 2. Woche Freitag Team X' — wird bei jeder Planung automatisch als Vorbelegung gesetzt.",
+        "z.B. 'Jede 2. Woche Freitag Team X' â€” wird bei jeder Planung automatisch als Vorbelegung gesetzt.",
         style = MaterialTheme.typography.bodySmall
     )
     Spacer(Modifier.height(6.dp))
@@ -1092,7 +876,7 @@ fun WiederkehrendEditor(vm: PlanerViewModel) {
             )
         },
         enabled = paar.isNotEmpty(), modifier = Modifier.fillMaxWidth()
-    ) { Text("Muster hinzufügen") }
+    ) { Text("Muster hinzufÃ¼gen") }
 
     if (state.datei.wiederkehrend.isNotEmpty()) {
         Spacer(Modifier.height(6.dp))
@@ -1103,7 +887,7 @@ fun WiederkehrendEditor(vm: PlanerViewModel) {
                         "${if (m.alleXWochen == 1) "Jede Woche" else "Jede 2. Woche (ab W${m.startWoche})"}, ${m.tag}: ${m.paar}",
                         Modifier.weight(1f)
                     )
-                    TextButton(onClick = { vm.loescheWiederkehrendesMuster(m) }) { Text("×") }
+                    TextButton(onClick = { vm.loescheWiederkehrendesMuster(m) }) { Text("Ã—") }
                 }
             }
         }

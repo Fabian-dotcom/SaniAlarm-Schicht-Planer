@@ -71,6 +71,10 @@ data class UiState(
     val statistikBis: LocalDate? = null,
     /** Monat, fuer den der Plan erstellt wird (1. des Monats) */
     val planMonat: YearMonth = YearMonth.now(),
+    /** Wer bin ich: voller Name der Person fuer Profil + persoenliche Erinnerungen */
+    val ich: String = "",
+    /** Standardsortierung der Personen-Kartei: "nachname"|"vorname"|"klasse"|"ausbildung" */
+    val karteiSortierung: String = "nachname",
 )
 
 class PlanerViewModel(private val store: ConfigStore, private val saniteamStore: SaniteamStore) {
@@ -81,12 +85,25 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
     private val speicher = SaniteamSpeicher()
 
     init {
+        val prefs = store.prefsFuerIch()
         state = state.copy(
             config = store.laden(),
             // Gespeicherte .saniteam-Daten laden (ueberlebt App-Neustart)
             datei = saniteamStore.laden() ?: SaniteamDatei(),
+            ich = prefs,
+            karteiSortierung = store.prefsKarteiSortierung(),
         )
         configAusDatei()
+    }
+
+    fun setzeIch(name: String) {
+        state = state.copy(ich = name)
+        store.speichereIch(name)
+    }
+
+    fun setzeKarteiSortierung(s: String) {
+        state = state.copy(karteiSortierung = s)
+        store.speichereKarteiSortierung(s)
     }
 
     // ------------------------------------------------------------------
@@ -569,9 +586,11 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
         state = state.copy(laeuft = true, fehler = null)
         val ergebnis = withContext(Dispatchers.Default) {
             val aufstellung = verarbeiteAufstellung(state.config, state.kranke, state.abwesenheiten)
+            // #53: Klassenarbeiten als harte Regel in die Planung
+            val kaLookup = klassenArbeitLookup()
             val res = generiereDienstplan(
                 state.config, aufstellung, state.abwesenheiten,
-                effektiveVorbelegungen, state.gesperrteTage
+                effektiveVorbelegungen, state.gesperrteTage, kaLookup
             )
             res to aufstellung
         }
@@ -708,6 +727,37 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
             }
         )
         return true
+    }
+
+    /** Lookup: Tag-Index -> Personen, die an dem Tag eine Klassenarbeit haben (#53). */
+    private fun klassenArbeitLookup(): KlassenArbeitLookup {
+        val map = mutableMapOf<Int, MutableSet<String>>()
+        val personen = state.datei.personen
+        for (t in state.datei.schultermine) {
+            if (t.typ != "Klassenarbeit") continue
+            val datum = try { LocalDate.parse(t.datum) } catch (_: Exception) { continue }
+            // Datum -> (Woche, Wochentag) des Planungsmonats
+            val woche = kalenderWocheFuer(datum) ?: continue
+            val tag = Wochentage.dienst.firstOrNull { datumFuer(woche, it) == datum } ?: continue
+            val idx = tagIndex(woche, tag)
+            val betroffene = (t.personNamen.toSet() + personen
+                .filter { it.klasse in t.klassen }.map { it.vollerName() }).toMutableSet()
+            map.getOrPut(idx) { mutableSetOf() }.addAll(betroffene)
+        }
+        return object : KlassenArbeitLookup {
+            override fun betroffene(tagIdx: Int): Set<String> = map[tagIdx].orEmpty()
+        }
+    }
+
+    /** Kalenderwoche (1-4) des Planungsmonats, in der ein Datum liegt; null wenn ausserhalb. */
+    private fun kalenderWocheFuer(datum: LocalDate): Int? {
+        for (w in 1..4) {
+            if (datumFuer(w, "Montag")?.let { datum >= it } == true) {
+                val ende = datumFuer(w, "Freitag")
+                if (ende != null && datum <= ende) return w
+            }
+        }
+        return null
     }
 
     // ------------------------------------------------------------------

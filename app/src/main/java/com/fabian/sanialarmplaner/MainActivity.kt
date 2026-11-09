@@ -55,11 +55,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Plant Erinnerungen fuer alle eigenen Dienste des aktuellen Plans (#25). */
+    /** Plant Erinnerungen NUR fuer die eigenen Dienste (#25 + Profil: 'Wer bin ich'). */
     fun planeErinnerungenFuerPlan(vorlaufStunden: Long = 24) {
+        val ich = vm.state.ich
+        if (ich.isBlank()) return   // ohne Profil keine personalisierten Erinnerungen
         val alarmManager = getSystemService(ALARM_SERVICE) as android.app.AlarmManager
         for (e in vm.state.plan) {
             if (!e.hatDienst) continue
+            if (ich !in e.mitglieder) continue   // nur meine eigenen Dienste
             val datum = vm.datumFuer(e.woche, e.tag) ?: continue
             if (datum.isBefore(java.time.LocalDate.now())) continue
             com.fabian.sanialarmplaner.logic.Benachrichtigungen.planeErinnerung(

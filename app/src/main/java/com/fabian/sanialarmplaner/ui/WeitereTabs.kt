@@ -96,7 +96,28 @@ fun PersonenTab(vm: PlanerViewModel) {
             Text("Noch keine Personen angelegt.", style = MaterialTheme.typography.bodySmall)
         }
 
-        val sortierte = gefilterte.sortedWith(compareBy({ !it.aktiv }, { it.nachname }, { it.vorname }))
+        // Sortierung: temporär wählbar (Session), Standard aus Einstellungen
+        var sortierung by remember { mutableStateOf(state.karteiSortierung) }
+        val sortierte = when (sortierung) {
+            "vorname" -> gefilterte.sortedWith(compareBy({ !it.aktiv }, { it.vorname }, { it.nachname }))
+            "klasse" -> gefilterte.sortedWith(compareBy({ !it.aktiv }, { it.klasse }, { it.nachname }, { it.vorname }))
+            "ausbildung" -> gefilterte.sortedWith(
+                compareBy({ !it.aktiv }, { !it.ausbildungAbgeschlossen }, { it.nachname }, { it.vorname }))
+            else -> gefilterte.sortedWith(compareBy({ !it.aktiv }, { it.nachname }, { it.vorname }))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(vertical = 2.dp)) {
+            Text("Sortierung:", style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.align(Alignment.CenterVertically))
+            listOf("nachname" to "Name", "vorname" to "Vorname", "klasse" to "Klasse", "ausbildung" to "Ausbildung")
+                .forEach { (key, label) ->
+                    FilterChip(
+                        selected = sortierung == key,
+                        onClick = { sortierung = key },
+                        label = { Text(label) },
+                        modifier = Modifier.heightIn(min = 28.dp)
+                    )
+                }
+        }
         if (sortierte.isEmpty() && state.datei.personen.isNotEmpty()) {
             Text("Keine Treffer für '$suche'.", style = MaterialTheme.typography.bodySmall)
         }
@@ -105,8 +126,24 @@ fun PersonenTab(vm: PlanerViewModel) {
             val personZuTeams = state.config.teams.entries
                 .flatMap { (team, mitglieder) -> mitglieder.map { it to team } }
                 .groupBy({ it.first }, { it.second })
-            // Kacheln: 2 Spalten
-            val zeilen = sortierte.chunked(2)
+
+            // Wunsch: 2er-Teams direkt nebeneinander (links A, rechts B)
+            val bereitsGezeigt = mutableSetOf<String>()
+            val zeilen = mutableListOf<List<Person>>()
+            for (p in sortierte) {
+                if (p.vollerName() in bereitsGezeigt) continue
+                val partnerName = p.bevorzugterPartner
+                val partner = if (partnerName.isNotBlank())
+                    sortierte.firstOrNull { it.vollerName() == partnerName && it.vollerName() !in bereitsGezeigt && it.vollerName() != p.vollerName() }
+                else null
+                if (partner != null) {
+                    zeilen.add(listOf(p, partner))
+                    bereitsGezeigt += p.vollerName(); bereitsGezeigt += partner.vollerName()
+                } else {
+                    zeilen.add(listOf(p))
+                    bereitsGezeigt += p.vollerName()
+                }
+            }
             zeilen.forEach { paarzeile ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     paarzeile.forEach { p ->
@@ -546,6 +583,9 @@ fun EinstellungenTab(vm: PlanerViewModel) {
             RegelRow("Fairness (1–2× pro 2-Wochen-Block)", cfg.regeln.blockFairness) { v ->
                 vm.updateConfig { c -> c.copy(regeln = c.regeln.copy(blockFairness = v)) }
             },
+            RegelRow("Klassenarbeit = harter Ausschluss", cfg.regeln.klassenarbeitHart) { v ->
+                vm.updateConfig { c -> c.copy(regeln = c.regeln.copy(klassenarbeitHart = v)) }
+            },
         )
         regelListe.forEach { r ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -603,6 +643,20 @@ fun EinstellungenTab(vm: PlanerViewModel) {
         Spacer(Modifier.height(16.dp))
         Text("Gruppen", style = MaterialTheme.typography.titleMedium)
         GruppenEditor(vm)
+
+        Spacer(Modifier.height(16.dp))
+        Text("Standardsortierung der Kartei", style = MaterialTheme.typography.titleMedium)
+        val aktuelleSortierung = vm.state.karteiSortierung
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("nachname" to "Nachname", "vorname" to "Vorname", "klasse" to "Klasse", "ausbildung" to "Ausbildung")
+                .forEach { (key, label) ->
+                    FilterChip(
+                        selected = aktuelleSortierung == key,
+                        onClick = { vm.setzeKarteiSortierung(key) },
+                        label = { Text(label) }
+                    )
+                }
+        }
 
         Spacer(Modifier.height(16.dp))
         Text("Backups", style = MaterialTheme.typography.titleMedium)

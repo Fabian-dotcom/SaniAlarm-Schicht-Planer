@@ -205,6 +205,7 @@ fun SchulterminDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
     var datum by remember { mutableStateOf(LocalDate.now().toString()) }
     var titel by remember { mutableStateOf("Klassenarbeit") }
     var klassenText by remember { mutableStateOf("") }
+    var stufenText by remember { mutableStateOf("") }
     var typ by remember { mutableStateOf("Klassenarbeit") }
     val klassen = vm.klassenListe()
 
@@ -219,6 +220,7 @@ fun SchulterminDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
                             datum = d.toString(),
                             titel = titel.ifBlank { "Termin" },
                             klassen = klassenText.split(",").map { it.trim() }.filter { it.isNotBlank() },
+                            stufen = stufenText.split(",").map { it.trim() }.filter { it.isNotBlank() },
                             typ = typ,
                         )
                     )
@@ -254,6 +256,7 @@ fun SchulterminDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
                     }
                 }
                 OutlinedTextField(klassenText, { klassenText = it }, label = { Text("Klassen (Komma-getrennt)") })
+                OutlinedTextField(stufenText, { stufenText = it }, label = { Text("Stufen (z.B. 10,11)") })
             }
         }
     )
