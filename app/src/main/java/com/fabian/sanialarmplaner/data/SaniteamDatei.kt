@@ -23,6 +23,8 @@ data class SaniteamDatei(
     val einstellung: PlanEinstellung = PlanEinstellung(),
     /** Vergangene Schichten fuer Statistiken: "JJJJ-MM-TT" -> SchichtEintrag */
     val historie: List<HistorischeSchicht> = emptyList(),
+    /** Schulische Termine (Klassenarbeiten, Ferien etc.) fuer Kalender/Heatmap */
+    val schultermine: List<Schultermin> = emptyList(),
 )
 
 @Serializable
@@ -59,6 +61,21 @@ data class PlanEinstellung(
 data class HistorischeSchicht(
     val datum: String,        // "2026-11-05"
     val personNamen: List<String>,   // alle, die dabei waren (inkl. Springer)
+)
+
+// ==============================================================================
+// SCHULTERMINE (Klassenarbeiten etc.) - Fundament fuer Kalender/Heatmap (#53-55)
+// ==============================================================================
+
+@Serializable
+data class Schultermin(
+    val datum: String,             // "2026-11-12"
+    val titel: String = "Klassenarbeit",
+    val klassen: List<String> = emptyList(),   // betroffene Klassen, z.B. ["10b"]
+    /** Personen direkt betroffen (leer = alle aus den genannten Klassen) */
+    val personNamen: List<String> = emptyList(),
+    /** Typ: "Klassenarbeit", "Ferien", "Feiertag", "Sonstiges" */
+    val typ: String = "Klassenarbeit",
 )
 
 // ==============================================================================

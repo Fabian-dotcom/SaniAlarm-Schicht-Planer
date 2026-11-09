@@ -585,6 +585,29 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
     }
 
     // ------------------------------------------------------------------
+    // SCHULTERMINE & KALENDER (#53-55)
+    // ------------------------------------------------------------------
+
+    fun fuegeSchulterminHinzu(t: Schultermin) {
+        updateDatei { d -> d.copy(schultermine = d.schultermine + t) }
+    }
+
+    fun loescheSchultermin(t: Schultermin) {
+        updateDatei { d -> d.copy(schultermine = d.schultermine - t) }
+    }
+
+    fun schultermineFuer(datum: LocalDate): List<Schultermin> =
+        state.datei.schultermine.filter { it.datum == datum.toString() }
+
+    fun tagesAnalyse(von: LocalDate, bis: LocalDate, klassenFilter: Set<String> = emptySet()) =
+        KalenderAnalyse.betroffeneProTag(state.datei, von, bis, klassenFilter)
+
+    fun klassenListe(): List<String> =
+        state.datei.personen.map { it.klasse }.filter { it.isNotBlank() }.distinct().sorted()
+
+    fun archivierteHistorie(): List<HistorischeSchicht> = state.datei.historie
+
+    // ------------------------------------------------------------------
     // STATISTIK
     // ------------------------------------------------------------------
 

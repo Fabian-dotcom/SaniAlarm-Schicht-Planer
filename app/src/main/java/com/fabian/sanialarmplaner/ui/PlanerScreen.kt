@@ -44,7 +44,7 @@ import java.time.format.DateTimeFormatter
 fun PlanerScreen(vm: PlanerViewModel) {
     val state = vm.state
     var tab by remember { mutableStateOf(0) }
-    val tabs = listOf("Start", "Plan", "Ausfälle", "Vorbelegung", "Personen", "Statistik", "Einstellungen")
+    val tabs = listOf("Start", "Plan", "Ausfälle", "Vorbelegung", "Personen", "Kalender", "Statistik", "Einstellungen")
     val coroutineScope = rememberCoroutineScope()
 
     Scaffold(
@@ -68,8 +68,9 @@ fun PlanerScreen(vm: PlanerViewModel) {
                     2 -> AusfaelleTab(vm)
                     3 -> VorbelegungTab(vm)
                     4 -> PersonenTab(vm)
-                    5 -> StatistikTab(vm)
-                    6 -> EinstellungenTab(vm)
+                    5 -> KalenderTab(vm)
+                    6 -> StatistikTab(vm)
+                    7 -> EinstellungenTab(vm)
                 }
             }
             // Generieren-Button immer unten sichtbar
@@ -190,17 +191,20 @@ fun HomeTab(vm: PlanerViewModel, gotoTab: (Int) -> Unit) {
                 }
                 IosSeparator()
                 IosRow(icon = "📊", bg = iosPurple, titel = "Alle Statistiken",
-                    text = "Belastungsindex, Historie, Zeitraum", onClick = { gotoTab(5) })
+                    text = "Belastungsindex, Historie, Zeitraum", onClick = { gotoTab(6) })
             }
             Spacer(Modifier.height(20.dp))
         }
 
         IosSection("Weitere Bereiche") {
+            IosRow(icon = "📅", bg = iosBlue, titel = "Kalender",
+                text = "Schultermine & Heatmap", onClick = { gotoTab(5) })
+            IosSeparator()
             IosRow(icon = "📊", bg = iosPurple, titel = "Statistik",
-                text = "Belastungsindex & Historie", onClick = { gotoTab(5) })
+                text = "Belastungsindex & Historie", onClick = { gotoTab(6) })
             IosSeparator()
             IosRow(icon = "⚙️", bg = iosGray, titel = "Einstellungen",
-                text = "Regeln, Sperrtage, Daten", onClick = { gotoTab(6) })
+                text = "Regeln, Sperrtage, Daten", onClick = { gotoTab(7) })
         }
 
         Spacer(Modifier.height(40.dp))

@@ -1,0 +1,262 @@
+package com.fabian.sanialarmplaner.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.fabian.sanialarmplaner.data.Schultermin
+import com.fabian.sanialarmplaner.logic.KalenderAnalyse
+import com.fabian.sanialarmplaner.viewmodel.PlanerViewModel
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.format.DateTimeFormatter
+
+// ==============================================================================
+// KALENDER-TAB: Monatsansicht mit Schulterminen, Heatmap und Engpaessen (#53-55)
+// ==============================================================================
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun KalenderTab(vm: PlanerViewModel) {
+    var monat by remember { mutableStateOf(YearMonth.now()) }
+    var modus by remember { mutableStateOf(0) }   // 0=Termine, 1=Heatmap
+    var klassenFilter by remember { mutableStateOf(setOf<String>()) }
+    var neuerTermin by remember { mutableStateOf(false) }
+    val alleKlassen = vm.klassenListe()
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)
+    ) {
+        // Monat waehlen
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            IconButton(onClick = { monat = monat.minusMonths(1) }) { Text("‹") }
+            Text(
+                "${monat.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.GERMANY)} ${monat.year}",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+            IconButton(onClick = { monat = monat.plusMonths(1) }) { Text("›") }
+        }
+
+        // Modus + Klasse filtern
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilterChip(selected = modus == 0, onClick = { modus = 0 }, label = { Text("Termine") })
+            FilterChip(selected = modus == 1, onClick = { modus = 1 }, label = { Text("Heatmap") })
+        }
+        if (alleKlassen.isNotEmpty()) {
+            Text("Klassen-Filter (leer = alle):", style = MaterialTheme.typography.bodySmall)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                alleKlassen.forEach { k ->
+                    FilterChip(
+                        selected = k in klassenFilter,
+                        onClick = {
+                            klassenFilter = if (k in klassenFilter) klassenFilter - k else klassenFilter + k
+                        },
+                        label = { Text(k) }
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        val von = monat.atDay(1)
+        val bis = monat.atEndOfMonth()
+        val analyse = vm.tagesAnalyse(von, bis, klassenFilter)
+
+        // Monatsraster
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(8.dp)) {
+                Row {
+                    listOf("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So").forEach {
+                        Text(it, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                var cursor = von
+                // erste Zeile auffuellen
+                val vorLeer = (cursor.dayOfWeek.value + 6) % 7   // Mo=0
+                Row {
+                    repeat(vorLeer) { Box(Modifier.weight(1f).heightIn(min = 44.dp)) }
+                    while ((vorLeer + (cursor.dayOfMonth - 1)) % 7 != 0 && cursor <= bis) {
+                        TagesZelle(cursor, analyse[cursor], modus, Modifier.weight(1f))
+                        cursor = cursor.plusDays(1)
+                    }
+                    // Rest auffuellen
+                    while ((vorLeer + monat.lengthOfMonth() + (7 - (vorLeer + monat.lengthOfMonth()) % 7) % 7) % 7 != 0) break
+                    val rest = (7 - ((vorLeer + monat.lengthOfMonth()) % 7)) % 7
+                    repeat(rest) { Box(Modifier.weight(1f).heightIn(min = 44.dp)) }
+                }
+                while (cursor <= bis) {
+                    Row {
+                        var inZeile = 0
+                        while (inZeile < 7 && cursor <= bis) {
+                            TagesZelle(cursor, analyse[cursor], modus, Modifier.weight(1f))
+                            cursor = cursor.plusDays(1)
+                            inZeile++
+                        }
+                        repeat(7 - inZeile) { Box(Modifier.weight(1f).heightIn(min = 44.dp)) }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // Engpaesse (#53)
+        val probleme = KalenderAnalyse.problemTage(vm.state.datei, analyse)
+        if (probleme.isNotEmpty()) {
+            Text("Planungs-Engpässe", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "An diesen Tagen fehlen viele Personen (Klassenarbeiten o.ä.) — plant keine Dienste oder mehr Springer ein.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            probleme.forEach { d ->
+                val a = analyse[d] ?: return@forEach
+                Text(
+                    "• ${d.format(fmt)}: ${a.betroffenePersonen.size} Person(en) betroffen — ${a.termine.joinToString { it.titel }}",
+                    color = if (a.engpassStufe == 2) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // Termin-Liste des Monats
+        Text("Termine im Monat", style = MaterialTheme.typography.titleMedium)
+        val monatTermine = vm.state.datei.schultermine
+            .filter { it.datum.startsWith(monat.toString().substring(0, 7)) }
+            .sortedBy { it.datum }
+        if (monatTermine.isEmpty()) {
+            Text("Keine Termine eingetragen.", style = MaterialTheme.typography.bodySmall)
+        }
+        monatTermine.forEach { t ->
+            Card(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("${t.datum}: ${t.titel}" + (if (t.klassen.isNotEmpty()) " (${t.klassen.joinToString()})" else ""))
+                        if (t.typ != "Klassenarbeit") Text(t.typ, style = MaterialTheme.typography.labelSmall)
+                    }
+                    TextButton(onClick = { vm.loescheSchultermin(t) }) { Text("×") }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = { neuerTermin = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("+ Termin hinzufügen")
+        }
+        Spacer(Modifier.height(60.dp))
+    }
+
+    if (neuerTermin) {
+        SchulterminDialog(vm) { neuerTermin = false }
+    }
+}
+
+private val fmt = DateTimeFormatter.ofPattern("dd.MM.")
+
+@Composable
+fun TagesZelle(
+    datum: LocalDate,
+    analyse: com.fabian.sanialarmplaner.logic.TagesAnalyse?,
+    modus: Int,
+    modifier: Modifier = Modifier,
+) {
+    val bg = when {
+        analyse == null -> Color.Transparent
+        modus == 1 -> when (analyse.engpassStufe) {
+            2 -> Color(0xFFB3261E).copy(alpha = 0.35f)   // kritisch (rot)
+            1 -> Color(0xFFFFB300).copy(alpha = 0.35f)   // Engpass (gelb)
+            else -> Color(0xFF34C759).copy(alpha = 0.25f) // ok (gruen)
+        }
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    Column(
+        modifier
+            .heightIn(min = 44.dp)
+            .background(bg, MaterialTheme.shapes.small)
+            .padding(2.dp)
+    ) {
+        Text(
+            "${datum.dayOfMonth}",
+            style = MaterialTheme.typography.labelSmall
+        )
+        if (analyse != null && analyse.termine.isNotEmpty()) {
+            Text(
+                if (analyse.termine.size == 1) analyse.termine.first().titel.take(8)
+                else "${analyse.termine.size} Term.",
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun SchulterminDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
+    var datum by remember { mutableStateOf(LocalDate.now().toString()) }
+    var titel by remember { mutableStateOf("Klassenarbeit") }
+    var klassenText by remember { mutableStateOf("") }
+    var typ by remember { mutableStateOf("Klassenarbeit") }
+    val klassen = vm.klassenListe()
+
+    AlertDialog(
+        onDismissRequest = onSchliessen,
+        confirmButton = {
+            TextButton(onClick = {
+                val d = try { LocalDate.parse(datum) } catch (_: Exception) { null }
+                if (d != null) {
+                    vm.fuegeSchulterminHinzu(
+                        Schultermin(
+                            datum = d.toString(),
+                            titel = titel.ifBlank { "Termin" },
+                            klassen = klassenText.split(",").map { it.trim() }.filter { it.isNotBlank() },
+                            typ = typ,
+                        )
+                    )
+                    onSchliessen()
+                }
+            }) { Text("Speichern") }
+        },
+        dismissButton = { TextButton(onClick = onSchliessen) { Text("Abbrechen") } },
+        title = { Text("Neuer Schultermin") },
+        text = {
+            Column {
+                OutlinedTextField(datum, { datum = it }, label = { Text("Datum (JJJJ-MM-TT)") })
+                OutlinedTextField(titel, { titel = it }, label = { Text("Titel") })
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("Klassenarbeit", "Ferien", "Feiertag", "Sonstiges").forEach { t ->
+                        FilterChip(selected = typ == t, onClick = { typ = t }, label = { Text(t.take(4)) })
+                    }
+                }
+                if (klassen.isNotEmpty()) {
+                    Text("Klassen antippen (oder unten frei eintragen):", style = MaterialTheme.typography.bodySmall)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        klassen.forEach { k ->
+                            FilterChip(
+                                selected = k in klassenText.split(",").map { it.trim() },
+                                onClick = {
+                                    val liste = klassenText.split(",").map { it.trim() }.filter { it.isNotBlank() }.toMutableList()
+                                    if (k in liste) liste.remove(k) else liste.add(k)
+                                    klassenText = liste.joinToString(",")
+                                },
+                                label = { Text(k) }
+                            )
+                        }
+                    }
+                }
+                OutlinedTextField(klassenText, { klassenText = it }, label = { Text("Klassen (Komma-getrennt)") })
+            }
+        }
+    )
+}
+
+
