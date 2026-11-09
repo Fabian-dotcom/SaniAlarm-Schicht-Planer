@@ -484,6 +484,10 @@ fun EinstellungenTab(vm: PlanerViewModel) {
         SaniteamExportImport(vm)
 
         Spacer(Modifier.height(16.dp))
+        Text("Springer & priorisierte Teams", style = MaterialTheme.typography.titleMedium)
+        SpringerEditor(vm)
+
+        Spacer(Modifier.height(16.dp))
         Text("Präferenzen (Springer → bevorzugte Teams)", style = MaterialTheme.typography.titleMedium)
         if (cfg.praeferenzen.isEmpty()) Text("Keine hinterlegt.", style = MaterialTheme.typography.bodySmall)
         cfg.praeferenzen.forEach { (springer, teams) ->
@@ -640,4 +644,84 @@ fun EinsatzLimitEditor(vm: PlanerViewModel) {
             }) { Text("Entfernen") }
         }
     }
+}
+
+// ==============================================================================
+// SPRINGER-EDITOR: Springer hinzufuegen/entfernen + priorisierte Teams pro Springer
+// ==============================================================================
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun SpringerEditor(vm: PlanerViewModel) {
+    val cfg = vm.state.config
+    val datei = vm.state.datei
+    val allePersonen = datei.personen.filter { it.aktiv }.map { it.vollerName() }.sorted()
+    var neuerSpringer by remember { mutableStateOf("") }
+
+    // --- Springer hinzufuegen/entfernen ---
+    Text("Springer-Liste:", style = MaterialTheme.typography.bodySmall)
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        allePersonen.forEach { p ->
+            val istSpringer = p in cfg.springer
+            FilterChip(
+                selected = istSpringer,
+                onClick = {
+                    vm.updateDatei { d ->
+                        val liste = d.einstellung.springerNamen.toMutableList()
+                        if (istSpringer) liste.remove(p) else liste.add(p)
+                        d.copy(einstellung = d.einstellung.copy(springerNamen = liste))
+                    }
+                },
+                label = { Text(p) }
+            )
+        }
+    }
+    Text(
+        "Angetippt = ist Springer. Nur ausgebildete Personen ohne festes Team oder explizit Markierte tauchen im Plan als Springer auf.",
+        style = MaterialTheme.typography.bodySmall
+    )
+
+    Spacer(Modifier.height(10.dp))
+
+    // --- Priorisierte Teams pro Springer ---
+    if (cfg.springer.isEmpty()) {
+        Text("Keine Springer markiert.", style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    var springerWaehl by remember(cfg.springer) { mutableStateOf(cfg.springer.first()) }
+    LabeledDropdown("Springer", cfg.springer, springerWaehl, Modifier.fillMaxWidth()) { springerWaehl = it }
+
+    if (cfg.teams.isEmpty()) {
+        Text("Keine Teams vorhanden.", style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    Text("Priorisierte Teams für $springerWaehl:", style = MaterialTheme.typography.bodySmall)
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        cfg.teams.keys.forEach { team ->
+            val priorisiert = team in cfg.praeferenzen[springerWaehl].orEmpty()
+            FilterChip(
+                selected = priorisiert,
+                onClick = {
+                    vm.updateDatei { d ->
+                        val aktuelle = d.einstellung.praeferenzen[springerWaehl].orEmpty().toMutableList()
+                        if (!aktuelle.add(team)) aktuelle.remove(team)
+                        val neu = if (aktuelle.isEmpty())
+                            d.einstellung.praeferenzen - springerWaehl
+                        else d.einstellung.praeferenzen + (springerWaehl to aktuelle)
+                        d.copy(einstellung = d.einstellung.copy(praeferenzen = neu))
+                    }
+                },
+                label = { Text(team) }
+            )
+        }
+    }
+    Text(
+        "Leer = Springer darf überall. Mit Auswahl darf der Springer nur bei den markierten Teams eingesetzt werden.",
+        style = MaterialTheme.typography.bodySmall
+    )
 }
