@@ -455,6 +455,27 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
         )
     }
 
+    /**
+     * Archiviert den aktuellen Plan als HistorischeSchicht (#52). Jeder Plan-Eintrag
+     * wird als eigene Schicht mit Datum eingetragen, sofern dieses Datum noch
+     * nicht in der Historie vorhanden ist.
+     */
+    private fun archiviereAltenPlan() {
+        val alterPlan = state.plan
+        if (alterPlan.isEmpty()) return
+        val neueEintraege = alterPlan
+            .filter { it.hatDienst }
+            .mapNotNull { e ->
+                val datum = datumFuer(e.woche, e.tag)?.toString() ?: return@mapNotNull null
+                if (state.datei.historie.any { it.datum == datum }) return@mapNotNull null
+                HistorischeSchicht(datum, e.mitglieder)
+            }
+        if (neueEintraege.isNotEmpty()) {
+            state = state.copy(datei = state.datei.copy(historie = state.datei.historie + neueEintraege))
+            saniteamSpeicherOrt?.speichern(state.datei)
+        }
+    }
+
     /** Monat vor/zurueck schalten (#42). Wechsel leert Plan + Vorbelegungen. */
     fun wechselPlanMonat(monate: Int) {
         val neu = state.planMonat.plusMonths(monate.toLong())
@@ -487,6 +508,9 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
     }
 
     suspend fun generiere() {
+        // Plan-Archiv (#52): den aktuellen Plan als Historie sichern, bevor ein
+        // neuer generiert wird (damit die Statistik von selbst waechst)
+        archiviereAltenPlan()
         state = state.copy(laeuft = true, fehler = null)
         val ergebnis = withContext(Dispatchers.Default) {
             val aufstellung = verarbeiteAufstellung(state.config, state.kranke, state.abwesenheiten)
