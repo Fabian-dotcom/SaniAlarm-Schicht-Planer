@@ -1,9 +1,13 @@
-package com.fabian.sanialarmplaner.ui
+﻿package com.fabian.sanialarmplaner.ui
 
 import android.content.Intent
+import android.net.Uri
 import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
 import android.print.PrintManager
 import android.webkit.WebView
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -32,245 +37,216 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.ui.graphics.vector.ImageVector
+
+private data class NavZiel(val key: String, val label: String, val icon: ImageVector)
+
+private val NAV_ZIELE = listOf(
+    NavZiel("profil", "Start", Icons.Default.Home),
+    NavZiel("plan", "Plan", Icons.AutoMirrored.Filled.List),
+    NavZiel("personen", "Kartei", Icons.Default.Person),
+    NavZiel("kalender", "Kalender", Icons.Default.DateRange),
+    NavZiel("mehr", "Mehr", Icons.Default.MoreVert),
+)
+
 // ==============================================================================
-// HAUPT-SCREEN MIT SCROLLBARER TAB-LEISTE (Fix fuer abgeschnittene Woerter)
+// HAUPT-SCREEN: Bottom-Navigation mit echten Icons
 // ==============================================================================
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlanerScreen(vm: PlanerViewModel) {
-    val state = vm.state
-    var tab by remember { mutableStateOf(0) }
-    val tabs = listOf("Start", "Plan", "Ausfälle", "Vorbelegung", "Personen", "Statistik", "Einstellungen")
-    val coroutineScope = rememberCoroutineScope()
+    var seite by remember { mutableStateOf("profil") }
+    var unterseite by remember { mutableStateOf("ausfaelle") }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Sani Alarm Planer") }) }
+        containerColor = MaterialTheme.colorScheme.background,
+        bottomBar = {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                NAV_ZIELE.forEach { ziel ->
+                    NavigationBarItem(
+                        selected = seite == ziel.key,
+                        onClick = { seite = ziel.key },
+                        icon = { Icon(ziel.icon, contentDescription = ziel.label) },
+                        label = { Text(ziel.label, maxLines = 1) },
+                    )
+                }
+            }
+        }
     ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            // ScrollableTabRow: lange Tab-Namen werden nicht mehr abgeschnitten
-            ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
-                tabs.forEachIndexed { i, t ->
-                    Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t) })
-                }
-            }
-            Box(Modifier.weight(1f)) {
-                when (tab) {
-                    0 -> HomeTab(vm, gotoTab = { tab = it })
-                    1 -> PlanTab(vm, onWeiter = { tab = 2 }, onPersonen = { tab = 4 })
-                    2 -> AusfaelleTab(vm)
-                    3 -> VorbelegungTab(vm)
-                    4 -> PersonenTab(vm)
-                    5 -> StatistikTab(vm)
-                    6 -> EinstellungenTab(vm)
-                }
-            }
-            // Generieren-Button immer unten sichtbar
-            if (tab in listOf(1, 2, 3)) {
-                Button(
-                    onClick = { coroutineScope.launch { vm.generiere() } },
-                    enabled = !state.laeuft,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp)
-                ) { Text(if (state.laeuft) "Rechnet…" else "Plan generieren") }
+        Box(Modifier.fillMaxSize().padding(padding)) {
+            when (seite) {
+                "profil" -> ProfilTab(vm, goto = { ziel ->
+                    when (ziel) {
+                        "plan", "personen", "kalender" -> seite = ziel
+                        else -> { unterseite = ziel; seite = "mehr" }
+                    }
+                })
+                "plan" -> PlanTab(
+                    vm,
+                    onWeiter = { unterseite = "ausfaelle"; seite = "mehr" },
+                    onPersonen = { seite = "personen" },
+                )
+                "personen" -> PersonenTab(vm)
+                "kalender" -> KalenderTab(vm)
+                "mehr" -> MehrTab(vm, unterseite, onUnterseite = { unterseite = it })
             }
         }
     }
 }
 
 // ==============================================================================
-// TAB 0: HOME (Uebersicht + Schnelleinstieg)
-// ==============================================================================
-@Composable
-fun HomeTab(vm: PlanerViewModel, gotoTab: (Int) -> Unit) {
-    val state = vm.state
-    val anzahlPersonen = state.datei.personen.count { it.aktiv }
-    val anzahlTeams = state.config.teams.size
-    val anzahlKrank = state.kranke.size
-    val hatPlan = state.plan.isNotEmpty()
-
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)
-    ) {
-        Text("Willkommen!", style = MaterialTheme.typography.headlineSmall)
-        Text(
-            "Monatsdienstplan der Sani-AG planen, Statistiken führen, Ausfälle verwalten.",
-            style = MaterialTheme.typography.bodySmall
-        )
-        Spacer(Modifier.height(12.dp))
-
-        // Status-Karten
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            HomeStat("Personen", "$anzahlPersonen", Modifier.weight(1f))
-            HomeStat("Teams", "$anzahlTeams", Modifier.weight(1f))
-            HomeStat("Krank", "$anzahlKrank", Modifier.weight(1f))
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        // Schnellstart-Schritte
-        Text("Schnellstart", style = MaterialTheme.typography.titleMedium)
-        HomeSchritt(
-            nummer = 1,
-            titel = "Personen anlegen",
-            beschreibung = if (anzahlPersonen == 0) "Noch keine Personen — hier starten!" else "$anzahlPersonen Personen vorhanden",
-            erledigt = anzahlPersonen > 0,
-            onClick = { gotoTab(4) }
-        )
-        HomeSchritt(
-            nummer = 2,
-            titel = "Ausfälle markieren",
-            beschreibung = if (anzahlKrank == 0) "Niemand krank gemeldet" else "$anzahlKrank Person(en) krank",
-            erledigt = anzahlKrank > 0,
-            onClick = { gotoTab(2) }
-        )
-        HomeSchritt(
-            nummer = 3,
-            titel = "Plan generieren",
-            beschreibung = if (hatPlan) "Plan ist bereit (Tab Plan)" else "Noch kein Plan für diesen Monat",
-            erledigt = hatPlan,
-            onClick = { gotoTab(1) }
-        )
-
-        Spacer(Modifier.height(16.dp))
-
-        // Nächster Dienst aus dem aktuellen Plan
-        if (hatPlan) {
-            Text("Nächster Dienst", style = MaterialTheme.typography.titleMedium)
-            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                Column(Modifier.padding(12.dp)) {
-                    val naechster = state.plan.first()
-                    Text("Woche ${naechster.woche}, ${naechster.tag}", style = MaterialTheme.typography.titleSmall)
-                    Text(naechster.mitglieder.joinToString() + (naechster.springer?.let { " + $it" } ?: ""))
-                }
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-        Text("Weitere Bereiche", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { gotoTab(5) }, modifier = Modifier.weight(1f)) { Text("Statistik") }
-            OutlinedButton(onClick = { gotoTab(6) }, modifier = Modifier.weight(1f)) { Text("Einstellungen") }
-        }
-        Spacer(Modifier.height(60.dp))
-    }
-}
-
-@Composable
-fun HomeStat(label: String, wert: String, modifier: Modifier = Modifier) {
-    Card(modifier) {
-        Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(wert, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
-            Text(label, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-
-@Composable
-fun HomeSchritt(nummer: Int, titel: String, beschreibung: String, erledigt: Boolean, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
-    ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                if (erledigt) "✓" else "$nummer",
-                style = MaterialTheme.typography.titleMedium,
-                color = if (erledigt) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.width(28.dp)
-            )
-            Column(Modifier.weight(1f)) {
-                Text(titel, style = MaterialTheme.typography.bodyLarge)
-                Text(beschreibung, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Text("›", style = MaterialTheme.typography.titleLarge)
-        }
-    }
-}
-
-// ==============================================================================
-// TAB 1: PLAN
+// TAB: PLAN  (eine Hauptaktion, Rest im Menue)
 // ==============================================================================
 @Composable
 fun PlanTab(vm: PlanerViewModel, onWeiter: () -> Unit, onPersonen: () -> Unit) {
     val state = vm.state
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var zeigeTausch by remember { mutableStateOf(false) }
+    var menue by remember { mutableStateOf(false) }
 
     Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(vertical = 8.dp, horizontal = 12.dp)
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onWeiter, modifier = Modifier.weight(1f)) {
-                Text("Ausfälle")
+        // Monat + Menue
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { vm.wechselPlanMonat(-1) }, enabled = !state.laeuft) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Vorheriger Monat")
             }
-            OutlinedButton(onClick = onPersonen, modifier = Modifier.weight(1f)) {
-                Text("Kartei")
+            val monatsName = state.planMonat.month
+                .getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.GERMANY)
+                .replaceFirstChar { it.uppercase() }
+            Text(
+                "$monatsName ${state.planMonat.year}",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            IconButton(onClick = { vm.wechselPlanMonat(1) }, enabled = !state.laeuft) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Nächster Monat")
             }
-        }
-
-        if (state.config.teams.isEmpty()) {
-            Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                Column(Modifier.padding(12.dp)) {
-                    Text("Noch keine Daten", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "Lege zuerst Personen in der Kartei an (Tab \"Personen\") oder importiere eine .saniteam-Datei (Einstellungen). Die Teams werden dann automatisch aus den Partnerwünschen gebildet.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
+            if (state.plan.isNotEmpty()) {
+                Box {
+                    IconButton(onClick = { menue = true }) { Icon(Icons.Default.MoreVert, "Weitere Aktionen") }
+                    DropdownMenu(expanded = menue, onDismissRequest = { menue = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Schichten tauschen") },
+                            leadingIcon = { Icon(Icons.Default.Refresh, null) },
+                            onClick = { menue = false; zeigeTausch = true },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Ausfälle melden") },
+                            leadingIcon = { Icon(Icons.Default.Warning, null) },
+                            onClick = { menue = false; onWeiter() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Text kopieren") },
+                            leadingIcon = { Icon(Icons.Default.Create, null) },
+                            onClick = { menue = false; clipboard.setText(AnnotatedString(vm.planAlsText())) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Teilen") },
+                            leadingIcon = { Icon(Icons.Default.Share, null) },
+                            onClick = {
+                                menue = false
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, vm.planAlsText())
+                                }
+                                context.startActivity(Intent.createChooser(intent, "Plan teilen"))
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Als PDF teilen") },
+                            leadingIcon = { Icon(Icons.Default.Share, null) },
+                            onClick = { menue = false; teileAlsPdf(context, vm.planAlsText()) },
+                        )
+                        if (vm.erinnerungenInvalidiert) {
+                            DropdownMenuItem(
+                                text = { Text("Erinnerungen aktivieren") },
+                                leadingIcon = { Icon(Icons.Default.Notifications, null) },
+                                onClick = {
+                                    menue = false
+                                    (context as? com.fabian.sanialarmplaner.MainActivity)?.planeErinnerungenFuerPlan()
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }
 
-        state.fehler?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
-        }
-        state.hinweise.forEach {
-            AssistChip(onClick = {}, label = { Text(it) }, modifier = Modifier.padding(top = 4.dp))
+        state.fehler?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        // Hinweise nur als eine ruhige Zeile statt vieler Chips
+        if (state.hinweise.isNotEmpty()) {
+            Text(
+                state.hinweise.joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
-        if (state.plan.isNotEmpty()) {
-            Spacer(Modifier.height(12.dp))
-            KalenderAnsicht(state.plan)
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = { zeigeTausch = true },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Schichten tauschen") }
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = {
-                    clipboard.setText(AnnotatedString(vm.planAlsText()))
-                }, modifier = Modifier.weight(1f)) { Text("Text kopieren") }
-                OutlinedButton(onClick = {
-                    val intent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, vm.planAlsText())
-                    }
-                    context.startActivity(Intent.createChooser(intent, "Plan teilen"))
-                }, modifier = Modifier.weight(1f)) { Text("Text teilen") }
-            }
-            Spacer(Modifier.height(8.dp))
-            Button(
-                onClick = { teileAlsPdf(context, vm.planAlsText()) },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Als PDF teilen") }
+        when {
+            state.config.teams.isEmpty() -> LeererZustand(
+                titel = "Noch keine Teams",
+                text = "Lege zuerst Personen in der Kartei an.",
+                aktion = "Zur Kartei",
+                onAktion = onPersonen,
+            )
+            state.plan.isEmpty() -> LeererZustand(
+                titel = "Kein Plan für diesen Monat",
+                text = "Tippe unten auf „Plan generieren“.",
+            )
+            else -> KalenderAnsicht(vm)
         }
-        Spacer(Modifier.height(24.dp))
+
+        if (state.config.teams.isNotEmpty()) {
+            Button(
+                onClick = { scope.launch { vm.generiere() } },
+                enabled = !state.laeuft,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                shape = MaterialTheme.shapes.large,
+            ) { Text(if (state.laeuft) vm.fortlaufend.ifBlank { "Rechnet…" } else "Plan generieren") }
+        }
+        Spacer(Modifier.height(8.dp))
     }
 
-    if (zeigeTausch) {
-        DiensteTauschenDialog(vm) { zeigeTausch = false }
+    if (zeigeTausch) DiensteTauschenDialog(vm) { zeigeTausch = false }
+}
+
+@Composable
+private fun LeererZustand(titel: String, text: String, aktion: String? = null, onAktion: () -> Unit = {}) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            Modifier.padding(20.dp).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(titel, style = MaterialTheme.typography.titleMedium)
+            Text(text, style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (aktion != null) OutlinedButton(onClick = onAktion) { Text(aktion) }
+        }
     }
 }
+
 
 @Composable
 private fun DiensteTauschenDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
@@ -356,7 +332,7 @@ private fun DiensteTauschenDialog(vm: PlanerViewModel, onSchliessen: () -> Unit)
     )
 }
 
-/** PDF-Erzeugung ueber Android-Print-Framework (WebView -> "Als PDF speichern"). */
+/** PDF-Erzeugung: PDF wird direkt in den Cache gerendert und im Share-Sheet angeboten (#35). */
 fun teileAlsPdf(context: android.content.Context, planText: String) {
     val rows = planText.lines().filter { it.contains(":") }.joinToString("") { line ->
         val parts = line.split(":", limit = 2)
@@ -376,24 +352,66 @@ fun teileAlsPdf(context: android.content.Context, planText: String) {
     val webView = WebView(context)
     webView.webViewClient = object : android.webkit.WebViewClient() {
         override fun onPageFinished(view: WebView, url: String?) {
-            val printAdapter = view.createPrintDocumentAdapter("Dienstplan")
-            val printManager = context.getSystemService(android.content.Context.PRINT_SERVICE) as PrintManager
-            printManager.print("Dienstplan", printAdapter, PrintAttributes.Builder().build())
-            // Nutzer waehlt im Dialog "Als PDF speichern" und kann die Datei dann teilen
+            // WebView-Inhalt auf Bitmap rendern -> in PDF zeichnen -> Share-Sheet (#35)
+            view.postDelayed({
+                try {
+                    val breite = 794   // A4 bei 96 dpi
+                    val hoehe = view.contentHeight.toInt().coerceAtLeast(200) + 40
+                    val bitmap = android.graphics.Bitmap.createBitmap(breite, hoehe, android.graphics.Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(bitmap)
+                    view.draw(canvas)
+
+                    val pdf = android.graphics.pdf.PdfDocument()
+                    val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(breite, 1123, 1).create()  // A4
+                    val page = pdf.startPage(pageInfo)
+                    // Bitmap auf A4-Seite skalieren
+                    val scale = 1123f / hoehe
+                    page.canvas.save()
+                    page.canvas.scale(scale.coerceAtMost(1f), scale.coerceAtMost(1f))
+                    page.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                    page.canvas.restore()
+                    pdf.finishPage(page)
+
+                    val outDir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
+                    val outFile = java.io.File(outDir, "dienstplan.pdf")
+                    pdf.writeTo(outFile.outputStream())
+                    pdf.close()
+                    bitmap.recycle()
+
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        context, "${context.packageName}.fileprovider", outFile
+                    )
+                    val share = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/pdf"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(share, "Dienstplan-PDF teilen"))
+                } catch (_: Exception) {
+                    // Fallback: Print-Dialog
+                    val adapter = view.createPrintDocumentAdapter("Dienstplan")
+                    val pm = context.getSystemService(android.content.Context.PRINT_SERVICE) as PrintManager
+                    pm.print("Dienstplan", adapter, PrintAttributes.Builder().build())
+                }
+            }, 400)
         }
     }
     webView.loadData(html, "text/html; charset=utf-8", "UTF-8")
 }
 
-/** Kalender-Grid: 4 Wochen untereinander, je 5 Tagesspalten mit Kopfzeile. */
+/** Kalender-Grid: 4 Wochen untereinander, je 5 Tagesspalten mit Kopfzeile und echten Daten. */
 @Composable
-fun KalenderAnsicht(plan: List<PlanEintrag>) {
+fun KalenderAnsicht(vm: PlanerViewModel) {
+    val plan = vm.state.plan
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         for (w in Wochen.alle) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(8.dp)) {
+                    val ersterTag = vm.datumFuer(w, "Montag")
                     Text(
-                        "Woche $w",
+                        if (ersterTag != null) {
+                            "Woche $w (${ersterTag.dayOfMonth}.${ersterTag.monthValue}.)"
+                        } else "Woche $w",
                         style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier.padding(bottom = 6.dp)
                     )
@@ -426,11 +444,19 @@ fun KalenderZelle(e: PlanEintrag, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
         shape = MaterialTheme.shapes.small,
-        color = if (e.vorbelegt) MaterialTheme.colorScheme.tertiaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant,
+        color = when {
+            e.gesperrt -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+            e.vorbelegt -> MaterialTheme.colorScheme.tertiaryContainer
+            else -> MaterialTheme.colorScheme.surfaceVariant
+        },
         tonalElevation = 1.dp
     ) {
         Column(Modifier.padding(6.dp)) {
+            if (e.gesperrt) {
+                Text("—", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                return@Column
+            }
             // Namen (nur Vornamen, damit es in die schmale Zelle passt)
             e.mitglieder.forEach { name ->
                 Text(
@@ -480,9 +506,11 @@ fun PlanZeile(e: PlanEintrag) {
 @Composable
 fun AusfaelleTab(vm: PlanerViewModel) {
     val state = vm.state
+    val context = LocalContext.current
     val allePersonen = (state.config.teams.values.flatten() + state.config.springer).sorted()
     var dialogPerson by remember { mutableStateOf<String?>(null) }
     var vertretungPerson by remember { mutableStateOf<String?>(null) }
+    var tauschPerson by remember { mutableStateOf<String?>(null) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)
@@ -515,7 +543,25 @@ fun AusfaelleTab(vm: PlanerViewModel) {
                         }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        // Notfall-Kontakte (#41): Telefon/E-Mail direkt anrufen/mailen
+                        val personObj = state.datei.personen.firstOrNull { it.vollerName() == person }
+                        if (!personObj?.telefon.isNullOrBlank()) {
+                            TextButton(onClick = {
+                                context.startActivity(Intent(Intent.ACTION_DIAL,
+                                    Uri.parse("tel:${personObj!!.telefon}")))
+                            }) { Text("Anrufen") }
+                        }
+                        if (!personObj?.email.isNullOrBlank()) {
+                            TextButton(onClick = {
+                                context.startActivity(Intent(Intent.ACTION_SENDTO,
+                                    Uri.parse("mailto:${personObj!!.email}")))
+                            }) { Text("Mail") }
+                        }
                         TextButton(onClick = { dialogPerson = person }) { Text("Tage…") }
+                        TextButton(
+                            enabled = state.plan.any { person in it.mitglieder },
+                            onClick = { tauschPerson = person },
+                        ) { Text("Tausch") }
                         TextButton(
                             enabled = state.plan.any { person in it.mitglieder },
                             onClick = { vertretungPerson = person },
@@ -566,6 +612,80 @@ fun AusfaelleTab(vm: PlanerViewModel) {
     vertretungPerson?.let { person ->
         VertretungDialog(vm, person) { vertretungPerson = null }
     }
+
+    tauschPerson?.let { person ->
+        TauschDialog(vm, person) { tauschPerson = null }
+    }
+}
+
+@Composable
+private fun TauschDialog(vm: PlanerViewModel, person: String, onSchliessen: () -> Unit) {
+    val dienste = vm.vertretungsDienste(person)
+    var meinDienst by remember(person) {
+        mutableStateOf(dienste.firstOrNull()?.let { it.woche to it.tag })
+    }
+    var partnerDienst by remember(person) { mutableStateOf<Pair<Int, String>?>(null) }
+    var meldung by remember { mutableStateOf<String?>(null) }
+
+    val dienstA = dienste.firstOrNull { (it.woche to it.tag) == meinDienst }
+    val dienstB = partnerDienst?.let { (w, t) -> vm.state.plan.firstOrNull { it.woche == w && it.tag == t } }
+    val partner = dienstB?.mitglieder?.firstOrNull { it != person }
+
+    AlertDialog(
+        onDismissRequest = onSchliessen,
+        title = { Text("Schicht tauschen: $person") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (dienste.isEmpty()) {
+                    Text("Diese Person ist im aktuellen Plan nicht eingeteilt.")
+                } else {
+                    Text("1. Meine Schicht:", style = MaterialTheme.typography.bodySmall)
+                    dienste.forEach { e ->
+                        FilterChip(
+                            selected = meinDienst == (e.woche to e.tag),
+                            onClick = { meinDienst = e.woche to e.tag },
+                            label = { Text("W${e.woche} · ${e.tag}") },
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text("2. Schicht des Tauschpartners:", style = MaterialTheme.typography.bodySmall)
+                    vm.state.plan.filter { it.hatDienst && person !in it.mitglieder }.forEach { e ->
+                        FilterChip(
+                            selected = partnerDienst == (e.woche to e.tag),
+                            onClick = { partnerDienst = e.woche to e.tag },
+                            label = { Text("W${e.woche} · ${e.tag} (${e.mitglieder.joinToString()})") },
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    if (partner != null && dienstA != null && dienstB != null) {
+                        val probleme = vm.pruefeTausch(dienstA, dienstB, person, partner)
+                        if (probleme.isEmpty()) {
+                            Text("✓ Tausch mit $partner ist regelkonform.",
+                                color = MaterialTheme.colorScheme.primary)
+                        } else {
+                            Text("Konflikte:", color = MaterialTheme.colorScheme.error)
+                            probleme.forEach { Text("• $it", color = MaterialTheme.colorScheme.error) }
+                        }
+                    }
+                    meldung?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+        },
+        confirmButton = {
+            if (dienstA != null && dienstB != null && partner != null) {
+                Button(onClick = {
+                    meldung = if (vm.fuehreTauschAus(dienstA, dienstB, person, partner)) {
+                        onSchliessen()
+                        "Tausch durchgeführt."
+                    } else "Tausch verletzt Regeln."
+                }) { Text("Tauschen") }
+            }
+        },
+        dismissButton = { TextButton(onClick = onSchliessen) { Text("Abbrechen") } },
+    )
 }
 
 @Composable
@@ -694,6 +814,33 @@ fun VorbelegungTab(vm: PlanerViewModel) {
             enabled = paar.isNotEmpty(), modifier = Modifier.fillMaxWidth()
         ) { Text("Hinzufügen") }
 
+        Spacer(Modifier.height(16.dp))
+        // ---------------- Wiederkehrende Muster (#36) -----------------------
+        WiederkehrendEditor(vm)
+
+        Spacer(Modifier.height(16.dp))
+        // ---------------- Gesperrte Tage (kein Dienst, z.B. schulfrei) ------
+        Text("Kein Dienst (z.B. schulfrei)", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Markiere Tage, an denen GAR KEIN Dienst stattfindet. Der Plan lässt diese Tage leer.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(Modifier.height(6.dp))
+        Wochen.alle.forEach { w ->
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("W$w", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(30.dp))
+                Wochentage.dienst.forEach { t ->
+                    val gesperrt = tagIndex(w, t) in state.gesperrteTage
+                    FilterChip(
+                        selected = gesperrt,
+                        onClick = { vm.toggleGesperrterTag(w, t) },
+                        label = { Text(t.take(2), fontSize = 11.sp) },
+                        modifier = Modifier.heightIn(min = 32.dp)
+                    )
+                }
+            }
+        }
+
         Spacer(Modifier.height(12.dp))
         if (state.vorbelegungen.isEmpty()) {
             Text("Noch keine Vorbelegungen.", style = MaterialTheme.typography.bodySmall)
@@ -713,6 +860,66 @@ fun VorbelegungTab(vm: PlanerViewModel) {
             }
         }
         Spacer(Modifier.height(80.dp))
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun WiederkehrendEditor(vm: PlanerViewModel) {
+    val state = vm.state
+    var tag by remember { mutableStateOf(Wochentage.dienst.first()) }
+    var paar by remember { mutableStateOf(state.config.teams.keys.firstOrNull() ?: "") }
+    var rhythmus by remember { mutableStateOf(1) }
+    var startWoche by remember { mutableStateOf(1) }
+
+    Text("Wiederkehrende Muster", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "z.B. 'Jede 2. Woche Freitag Team X' — wird bei jeder Planung automatisch als Vorbelegung gesetzt.",
+        style = MaterialTheme.typography.bodySmall
+    )
+    Spacer(Modifier.height(6.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        LabeledDropdown("Tag", Wochentage.dienst, tag, Modifier.weight(1f)) { tag = it }
+        LabeledDropdown("Rhythmus", listOf("jede Woche", "jede 2. Woche"),
+            if (rhythmus == 1) "jede Woche" else "jede 2. Woche", Modifier.weight(1f)) {
+            rhythmus = if (it == "jede Woche") 1 else 2
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    LabeledDropdown("Team", state.config.teams.keys.toList(), paar, Modifier.fillMaxWidth()) { paar = it }
+    if (rhythmus == 2) {
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Startet in Woche:", style = MaterialTheme.typography.bodySmall)
+            FilterChip(selected = startWoche == 1, onClick = { startWoche = 1 }, label = { Text("1") })
+            FilterChip(selected = startWoche == 2, onClick = { startWoche = 2 }, label = { Text("2") })
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    Button(
+        onClick = {
+            vm.fuegeWiederkehrendesMusterHinzu(
+                com.fabian.sanialarmplaner.data.WiederkehrendeVorbelegung(
+                    tag, paar, null, rhythmus, startWoche
+                )
+            )
+        },
+        enabled = paar.isNotEmpty(), modifier = Modifier.fillMaxWidth()
+    ) { Text("Muster hinzufügen") }
+
+    if (state.datei.wiederkehrend.isNotEmpty()) {
+        Spacer(Modifier.height(6.dp))
+        state.datei.wiederkehrend.forEach { m ->
+            Card(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${if (m.alleXWochen == 1) "Jede Woche" else "Jede 2. Woche (ab W${m.startWoche})"}, ${m.tag}: ${m.paar}",
+                        Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { vm.loescheWiederkehrendesMuster(m) }) { Text("×") }
+                }
+            }
+        }
     }
 }
 

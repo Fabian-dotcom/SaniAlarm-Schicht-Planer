@@ -1,8 +1,13 @@
 package com.fabian.sanialarmplaner
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -39,6 +44,33 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+        // Benachrichtigungen (#25): Kanal + Berechtigung anfragen
+        com.fabian.sanialarmplaner.logic.Benachrichtigungen.kanalErstellen(this)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
+        }
+    }
+
+    /** Plant Erinnerungen NUR fuer die eigenen Dienste (#25 + Profil: 'Wer bin ich'). */
+    fun planeErinnerungenFuerPlan(vorlaufStunden: Long = 24) {
+        val ich = vm.state.ich
+        if (ich.isBlank()) return   // ohne Profil keine personalisierten Erinnerungen
+        val alarmManager = getSystemService(ALARM_SERVICE) as android.app.AlarmManager
+        for (e in vm.state.plan) {
+            if (!e.hatDienst) continue
+            if (ich !in e.mitglieder) continue   // nur meine eigenen Dienste
+            val datum = vm.datumFuer(e.woche, e.tag) ?: continue
+            if (datum.isBefore(java.time.LocalDate.now())) continue
+            com.fabian.sanialarmplaner.logic.Benachrichtigungen.planeErinnerung(
+                this, alarmManager, datum.toString(),
+                "${e.tag}: ${e.mitglieder.joinToString()}", vorlaufStunden
+            )
+        }
+        vm.markiereErinnerungenGeplant()
     }
 
     override fun onNewIntent(intent: Intent) {

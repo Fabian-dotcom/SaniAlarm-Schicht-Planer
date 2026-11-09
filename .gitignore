@@ -22,6 +22,8 @@ local.properties
 URSPRUNG/
 *.saniteam
 
+docs/
+BILDER/
 beitritt-website/node_modules/
 beitritt-website/dist/
 
@@ -35,3 +37,5 @@ c*.txt
 t*.txt
 b*.txt
 *.log
+.idea/*
+!.idea/codeStyles

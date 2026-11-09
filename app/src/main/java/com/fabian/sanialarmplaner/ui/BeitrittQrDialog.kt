@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -25,7 +26,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.fabian.sanialarmplaner.data.Person
@@ -50,6 +53,7 @@ private enum class BeitrittAnsicht { START, EINLADUNG, FORMULAR, ANFRAGE, BESTAE
 @Composable
 fun BeitrittQrDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val preferences = remember {
         context.getSharedPreferences("sanialarm_config", android.content.Context.MODE_PRIVATE)
     }
@@ -150,6 +154,20 @@ fun BeitrittQrDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
                     BeitrittAnsicht.EINLADUNG -> {
                         Text("Die neue Person scannt diesen Code mit der normalen Kamera-App. Der Link öffnet die Beitrittsseite. Ein zufälliger Schlüssel im Link verschlüsselt den Antwortcode; die Angaben stehen nicht lesbar im QR.")
                         code?.let { QrBild(it, "Beitrittseinladung") }
+                        // Der komplette Link, der auch im QR steckt, zum Lesen/Kopieren (#Wunsch 1)
+                        code?.let { c ->
+                            SelectionContainer {
+                                Text(
+                                    c,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            TextButton(onClick = {
+                                clipboard.setText(AnnotatedString(c))
+                                meldung = "Link in die Zwischenablage kopiert."
+                            }) { Text("Link kopieren") }
+                        }
                         OutlinedButton(
                             onClick = { scanner.launch(scanOptionen()) },
                             modifier = Modifier.fillMaxWidth(),

@@ -40,6 +40,8 @@ data class RegelKonfig(
     val keinBackToBack: Boolean = true,
     val springerPraeferenzen: Boolean = true,
     val blockFairness: Boolean = true,
+    /** #53: Klassenarbeit = harte Regel (Person darf nicht eingeteilt werden) */
+    val klassenarbeitHart: Boolean = true,
 )
 
 // ==============================================================================
@@ -49,6 +51,18 @@ data class RegelKonfig(
 class ConfigStore(context: Context) {
     private val prefs = context.getSharedPreferences("sanialarm_config", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
+
+    fun prefsFuerIch(): String = prefs.getString("ich", "") ?: ""
+
+    fun speichereIch(name: String) {
+        prefs.edit().putString("ich", name).apply()
+    }
+
+    fun prefsKarteiSortierung(): String = prefs.getString("karteiSortierung", "nachname") ?: "nachname"
+
+    fun speichereKarteiSortierung(s: String) {
+        prefs.edit().putString("karteiSortierung", s).apply()
+    }
 
     fun laden(): AppConfig = try {
         val raw = prefs.getString("config", null)

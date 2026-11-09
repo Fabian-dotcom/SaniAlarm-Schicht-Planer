@@ -23,16 +23,26 @@ data class SaniteamDatei(
     val einstellung: PlanEinstellung = PlanEinstellung(),
     /** Vergangene Schichten fuer Statistiken: "JJJJ-MM-TT" -> SchichtEintrag */
     val historie: List<HistorischeSchicht> = emptyList(),
+    /** Schulische Termine (Klassenarbeiten, Ferien etc.) fuer Kalender/Heatmap */
+    val schultermine: List<Schultermin> = emptyList(),
+    /** Wiederkehrende Vorbelegungen ('jede 2. Woche Freitag ...') */
+    val wiederkehrend: List<WiederkehrendeVorbelegung> = emptyList(),
+    /** Dauerhaft gespeicherte Pläne (Historie außerhalb des RAMs) */
+    val gespeichertePlaene: List<GespeicherterPlan> = emptyList(),
 )
 
 @Serializable
 data class Person(
     val vorname: String,
     val nachname: String = "",
-    val klasse: String = "",          // z.B. "Sani-AG 10b"
+    /** Jahrgangsstufe: "7"-"10" oder "Q1"-"Q4" (ab Q1 keine Klassen mehr) */
+    val stufe: String = "",
+    val klasse: String = "",          // z.B. "10b" (nur bis Stufe 10; ab Q1 leer)
     val geschlecht: String = "",      // "m", "w", "d" (optional, frei)
     val bevorzugterPartner: String = "",   // Vorname Nachname
     val ausbildungAbgeschlossen: Boolean = false,
+    /** Ausbildungsbeginn (JJJJ-MM), fuer praezisen Belastungsindex (#34) */
+    val ausbildungSeit: String = "",
     val seit: String = "",            // Beitritt, z.B. "2024-09" (fuer Belastungsindex)
     val anmerkung: String = "",
     val telefon: String = "",         // optional, fuer schnelle Absagen
@@ -48,6 +58,8 @@ data class PlanEinstellung(
     val teamSperrtage: Map<String, List<String>> = emptyMap(),
     val personSperrtage: Map<String, List<String>> = emptyMap(),
     val personMaxEinsaetze: Map<String, Int> = emptyMap(),
+    /** Tage ohne jeden Dienst (schulfrei etc.), Indizes 0..19 — persistiert (#39/#58) */
+    val gesperrteTage: Set<Int> = emptySet(),
     /** Regel-Schalter */
     val regeln: RegelKonfig = RegelKonfig(),
     val modus: String = "normal",
@@ -59,6 +71,47 @@ data class PlanEinstellung(
 data class HistorischeSchicht(
     val datum: String,        // "2026-11-05"
     val personNamen: List<String>,   // alle, die dabei waren (inkl. Springer)
+)
+
+/**
+ * Gespeicherter Dienstplan (#Wunsch: Pläne dauerhaft aufheben, nicht nur im RAM).
+ */
+@Serializable
+data class GespeicherterPlan(
+    val name: String,             // z.B. "November 2026"
+    val erstelltAm: String,       // ISO-Datum
+    val monat: String,            // "2026-11"
+    /** (woche,tag) -> (paar, springer); gesperrte Tage fehlen einfach */
+    val eintraege: Map<String, List<String>>,  // Key "w|tag" -> [paar, springer?]
+)
+
+// ==============================================================================
+// SCHULTERMINE (Klassenarbeiten etc.) - Fundament fuer Kalender/Heatmap (#53-55)
+// ==============================================================================
+
+/**
+ * Wiederkehrende Vorbelegung (#36): 'Jede 2. Woche' etc.
+ * alleXTage = Rhythmus (1 = jede Woche, 2 = jede zweite Woche), startOffset = Erste Woche (0-basiert)
+ */
+@Serializable
+data class WiederkehrendeVorbelegung(
+    val tag: String,                  // Wochentag, z.B. "Freitag"
+    val paar: String,
+    val springer: String? = null,
+    val alleXWochen: Int = 1,
+    val startWoche: Int = 1,          // 1 oder 2 (bei alleXWochen=2)
+)
+
+@Serializable
+data class Schultermin(
+    val datum: String,             // "2026-11-12"
+    val titel: String = "Klassenarbeit",
+    val klassen: List<String> = emptyList(),   // betroffene Klassen, z.B. ["10a"]
+    val stufen: List<String> = emptyList(),    // Jahrgangsstufen, z.B. ["10"]
+    /** Personen direkt betroffen (leer = alle aus den genannten Klassen/Stufen) */
+    val personNamen: List<String> = emptyList(),
+    /** Typ: "Klassenarbeit", "Ferien", "Feiertag", "Sonstiges" */
+    val typ: String = "Klassenarbeit",
 )
 
 // ==============================================================================
@@ -199,21 +252,104 @@ class SaniteamSpeicher(private val json: Json = Json { prettyPrint = true; ignor
 // ==============================================================================
 
 class SaniteamStore(context: Context) {
-    private val file = File(context.filesDir, "daten.saniteam")
+    private val ordner = File(context.filesDir, "gruppen")
+    private val backupOrdner = File(context.filesDir, "backups")
     private val speicher = SaniteamSpeicher()
+    private var letztesBackup: Long = 0L
+    private val prefs = context.getSharedPreferences("sanialarm_gruppen", Context.MODE_PRIVATE)
 
-    fun laden(): SaniteamDatei? = try {
-        if (!file.exists()) null else speicher.deserialisieren(file.readText())
+    /** Alle Gruppen-Namen (Dateinamen ohne Endung). */
+    fun gruppen(): List<String> =
+        ordner.listFiles()?.map { it.name.removeSuffix(".saniteam") }?.sorted() ?: emptyList()
+
+    /** Aktive Gruppe (fuer Multi-Gruppen-Support #29). */
+    fun aktiveGruppe(): String = prefs.getString("aktiv", "Standard") ?: "Standard"
+
+    fun setzeAktiveGruppe(name: String) {
+        prefs.edit().putString("aktiv", name).apply()
+    }
+
+    private fun dateiFuer(gruppe: String) = File(ordner, "$gruppe.saniteam")
+
+    fun laden(): SaniteamDatei? = laden(aktiveGruppe())
+
+    fun laden(gruppe: String): SaniteamDatei? = try {
+        val f = dateiFuer(gruppe)
+        if (!f.exists()) {
+            // Migration: alte daten.saniteam (vor Gruppen-Support) uebernehmen
+            val alt = File(ordner.parentFile, "daten.saniteam")
+            if (alt.exists() && gruppe == "Standard") {
+                val d = speicher.deserialisieren(alt.readText())
+                if (d != null) {
+                    speichern(gruppe, d)
+                    alt.delete()
+                    d
+                } else null
+            } else null
+        } else speicher.deserialisieren(f.readText())
     } catch (_: Exception) {
         null
     }
 
     fun speichern(datei: SaniteamDatei) {
+        speichern(aktiveGruppe(), datei)
+    }
+
+    fun speichern(gruppe: String, datei: SaniteamDatei) {
         try {
-            file.parentFile?.mkdirs()
+            ordner.mkdirs()
+            val file = dateiFuer(gruppe)
             file.writeText(speicher.serialisieren(datei))
+            vielleichtBackup()
         } catch (_: Exception) {
             // Schreibfehler still ignorieren; beim naechsten Speichern erneut versuchen
         }
+    }
+
+    fun neueGruppe(name: String): Boolean {
+        if (name.isBlank() || dateiFuer(name).exists()) return false
+        speichern(name, SaniteamDatei())
+        return true
+    }
+
+    fun loescheGruppe(name: String): Boolean {
+        if (name == "Standard") return false   // Standard bleibt immer
+        return try { dateiFuer(name).delete() } catch (_: Exception) { false }
+    }
+
+    /** Taegliches Backup: max. 1x pro Tag eine Kopie, max. 10 werden behalten. */
+    private fun vielleichtBackup() {
+        val jetzt = System.currentTimeMillis()
+        if (jetzt - letztesBackup < 24 * 60 * 60 * 1000L) return
+        letztesBackup = jetzt
+        try {
+            backupOrdner.mkdirs()
+            val stamp = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.GERMANY)
+                .format(java.util.Date(jetzt))
+            File(backupOrdner, "backup-$stamp-${aktiveGruppe()}.saniteam").writeText(
+                dateiFuer(aktiveGruppe()).readText()
+            )
+            // Alte Backups auf 10 begrenzen
+            backupOrdner.listFiles()
+                ?.sortedByDescending { it.name }
+                ?.drop(10)
+                ?.forEach { it.delete() }
+        } catch (_: Exception) {
+            // Backup-Fehler sind nicht kritisch
+        }
+    }
+
+    private fun neuestesBackup(): File? =
+        backupOrdner.listFiles()?.maxByOrNull { it.name }
+
+    /** Manuelle Backup-Liste fuer die Einstellungen (Wiederherstellen). */
+    fun backups(): List<String> =
+        backupOrdner.listFiles()?.sortedByDescending { it.name }?.map { it.name } ?: emptyList()
+
+    fun wiederherstellen(backupName: String): SaniteamDatei? {
+        val f = File(backupOrdner, backupName)
+        val d = speicher.deserialisieren(f.readText()) ?: return null
+        speichern(d)
+        return d
     }
 }
