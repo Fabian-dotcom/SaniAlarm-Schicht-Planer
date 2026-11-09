@@ -224,6 +224,7 @@ fun PersonDialog(vm: PlanerViewModel, bestaehend: Person?, onSchliessen: () -> U
     var geschlecht by remember { mutableStateOf(bestaehend?.geschlecht ?: "") }
     var partner by remember { mutableStateOf(bestaehend?.bevorzugterPartner ?: "") }
     var ausbildung by remember { mutableStateOf(bestaehend?.ausbildungAbgeschlossen ?: false) }
+    var ausbildungSeit by remember { mutableStateOf(bestaehend?.ausbildungSeit ?: "") }
     var seit by remember { mutableStateOf(bestaehend?.seit ?: "") }
     var telefon by remember { mutableStateOf(bestaehend?.telefon ?: "") }
     var email by remember { mutableStateOf(bestaehend?.email ?: "") }
@@ -239,7 +240,8 @@ fun PersonDialog(vm: PlanerViewModel, bestaehend: Person?, onSchliessen: () -> U
                         vorname = vorname.trim(), nachname = nachname.trim(),
                         klasse = klasse.trim(), geschlecht = geschlecht,
                         bevorzugterPartner = partner.trim(),
-                        ausbildungAbgeschlossen = ausbildung, seit = seit.trim(),
+                        ausbildungAbgeschlossen = ausbildung,
+                        ausbildungSeit = ausbildungSeit.trim(), seit = seit.trim(),
                         telefon = telefon.trim(), email = email.trim(),
                         anmerkung = anmerkung.trim(), aktiv = aktiv,
                     )
@@ -281,6 +283,13 @@ fun PersonDialog(vm: PlanerViewModel, bestaehend: Person?, onSchliessen: () -> U
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = ausbildung, onCheckedChange = { ausbildung = it })
                     Text("Ausbildung abgeschlossen")
+                }
+                if (ausbildung) {
+                    OutlinedTextField(
+                        ausbildungSeit, { ausbildungSeit = it },
+                        label = { Text("Ausbildung seit (JJJJ-MM)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
                 OutlinedTextField(seit, { seit = it }, label = { Text("Dabei seit (JJJJ-MM)") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(telefon, { telefon = it }, label = { Text("Telefon (optional)") }, modifier = Modifier.fillMaxWidth())

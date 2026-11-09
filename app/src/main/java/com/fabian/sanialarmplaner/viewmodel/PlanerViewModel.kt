@@ -657,14 +657,28 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
             val gesamt = (geplant[name] ?: 0) + (historisch[name] ?: 0)
             // Belastungsindex: Gesamt-Einsaetze pro Monat Mitgliedschaft,
             // ausgebildete zaehlen 1.2x (mehr Verantwortung)
-            val faktor = if (p.ausbildungAbgeschlossen) 1.2 else 1.0
+            // #34: Ausbildungs-Dauer praezise einrechnen: der Faktor steigt mit
+            // der Ausbildungsdauer von 1.0 (frisch) bis 1.3 (>= 2 Jahre)
+            val ausbildungMonate = try {
+                if (p.ausbildungSeit.isBlank()) 0
+                else java.time.Period.between(
+                    YearMonth.parse(p.ausbildungSeit).atDay(1), heute
+                ).toTotalMonths().toInt()
+            } catch (_: Exception) { 0 }
+            val faktor = when {
+                !p.ausbildungAbgeschlossen -> 1.0
+                ausbildungMonate >= 24 -> 1.3
+                ausbildungMonate >= 12 -> 1.2
+                else -> 1.1
+            }
+            val ausbildungJahre = if (p.ausbildungAbgeschlossen) ausbildungMonate / 12.0 else 0.0
             val index = if (monate > 0) (gesamt * faktor) / monate else gesamt * faktor * 2.0
             PersonenStatistik(
                 name = kurzNamen[name] ?: name,
                 geplant = geplant[name] ?: 0,
                 historisch = historisch[name] ?: 0,
                 monateDabei = monate,
-                ausbildungJahre = 0.0,   // TODO: aus Ausbildungs-Startdatum berechnen
+                ausbildungJahre = ausbildungJahre,
                 belastungsIndex = index,
             )
         }.sortedByDescending { it.belastungsIndex }

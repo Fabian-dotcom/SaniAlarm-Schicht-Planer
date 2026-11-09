@@ -35,6 +35,8 @@ data class Person(
     val geschlecht: String = "",      // "m", "w", "d" (optional, frei)
     val bevorzugterPartner: String = "",   // Vorname Nachname
     val ausbildungAbgeschlossen: Boolean = false,
+    /** Ausbildungsbeginn (JJJJ-MM), fuer praezisen Belastungsindex (#34) */
+    val ausbildungSeit: String = "",
     val seit: String = "",            // Beitritt, z.B. "2024-09" (fuer Belastungsindex)
     val anmerkung: String = "",
     val telefon: String = "",         // optional, fuer schnelle Absagen
