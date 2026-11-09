@@ -39,12 +39,23 @@ fun PersonenTab(vm: PlanerViewModel) {
     var neu by remember { mutableStateOf(false) }
     var zeigeQrBeitritt by remember { mutableStateOf(false) }
     var gridAnsicht by remember { mutableStateOf(false) }
+    var suche by remember { mutableStateOf("") }
+
+    val gefilterte = state.datei.personen.filter { p ->
+        suche.isBlank() ||
+            p.vollerName().contains(suche, ignoreCase = true) ||
+            p.klasse.contains(suche, ignoreCase = true)
+    }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Personen-Kartei (${state.datei.personen.size})", style = MaterialTheme.typography.titleMedium)
+            Text(
+                if (suche.isBlank()) "Personen-Kartei (${state.datei.personen.size})"
+                else "Treffer: ${gefilterte.size} von ${state.datei.personen.size}",
+                style = MaterialTheme.typography.titleMedium
+            )
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -70,11 +81,24 @@ fun PersonenTab(vm: PlanerViewModel) {
         }
         Spacer(Modifier.height(8.dp))
 
+        // Volltextsuche (#40)
+        OutlinedTextField(
+            value = suche,
+            onValueChange = { suche = it },
+            label = { Text("Suchen (Vor-/Nachname, Klasse)") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        Spacer(Modifier.height(6.dp))
+
         if (state.datei.personen.isEmpty()) {
             Text("Noch keine Personen angelegt.", style = MaterialTheme.typography.bodySmall)
         }
 
-        val sortierte = state.datei.personen.sortedWith(compareBy({ !it.aktiv }, { it.nachname }, { it.vorname }))
+        val sortierte = gefilterte.sortedWith(compareBy({ !it.aktiv }, { it.nachname }, { it.vorname }))
+        if (sortierte.isEmpty() && state.datei.personen.isNotEmpty()) {
+            Text("Keine Treffer für '$suche'.", style = MaterialTheme.typography.bodySmall)
+        }
         if (gridAnsicht) {
             // Kacheln: 2 Spalten
             val zeilen = sortierte.chunked(2)
