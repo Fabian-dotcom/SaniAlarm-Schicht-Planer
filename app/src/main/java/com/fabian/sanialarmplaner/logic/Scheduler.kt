@@ -145,6 +145,19 @@ fun istGueltig(
         }
     }
 
+    // REGEL 4b (Erweiterung): Springer hart begrenzen - max 2 Einsaetze im Monat,
+    // gilt UNABHAENGIG von der Entspannungsstufe (Bug: Springer waren sonst in
+    // fast jeder Woche eingeteilt)
+    if (springerPerson != null) {
+        val einsaetzeImMonat = dienstplan.values.count { it.springer == springerPerson }
+        if (einsaetzeImMonat >= 2) {
+            verstoesse += RegelVerstoß(
+                RegelId.FAIRNESS,
+                "$springerPerson ist bereits $einsaetzeImMonat× im Monat als Springer eingeteilt (Limit 2)"
+            )
+        }
+    }
+
     // REGEL 5: Springer-Präferenzen
     if (entspannung < 2 && config.regeln.springerPraeferenzen && springerPerson != null) {
         val praeferenzen = config.praeferenzen[springerPerson]
