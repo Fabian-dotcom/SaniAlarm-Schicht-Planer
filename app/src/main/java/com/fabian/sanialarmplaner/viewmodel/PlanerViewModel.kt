@@ -444,6 +444,14 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
         state = state.copy(vorbelegungen = state.vorbelegungen - schluessel)
     }
 
+    fun fuegeWiederkehrendesMusterHinzu(m: WiederkehrendeVorbelegung) {
+        updateDatei { d -> d.copy(wiederkehrend = d.wiederkehrend + m) }
+    }
+
+    fun loescheWiederkehrendesMuster(m: WiederkehrendeVorbelegung) {
+        updateDatei { d -> d.copy(wiederkehrend = d.wiederkehrend - m) }
+    }
+
     fun allesZuruecksetzen() {
         state = state.copy(
             kranke = emptySet(),
@@ -511,12 +519,25 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
         // Plan-Archiv (#52): den aktuellen Plan als Historie sichern, bevor ein
         // neuer generiert wird (damit die Statistik von selbst waechst)
         archiviereAltenPlan()
+
+        // Wiederkehrende Vorbelegungen (#36): in konkrete Vorbelegungen uebersetzen
+        val patternVorbelegungen = state.datei.wiederkehrend.flatMap { pattern ->
+            Wochen.alle.filter { w ->
+                pattern.alleXWochen == 1 || (w - pattern.startWoche) % pattern.alleXWochen == 0
+            }.mapNotNull { w ->
+                val key = w to pattern.tag
+                if (tagIndex(w, pattern.tag) in state.gesperrteTage) return@mapNotNull null
+                key to Dienst(pattern.paar, pattern.springer)
+            }
+        }.toMap()
+        // Manuelle Vorbelegungen gewinnen gegen Muster
+        val effektiveVorbelegungen = patternVorbelegungen + state.vorbelegungen
         state = state.copy(laeuft = true, fehler = null)
         val ergebnis = withContext(Dispatchers.Default) {
             val aufstellung = verarbeiteAufstellung(state.config, state.kranke, state.abwesenheiten)
             val res = generiereDienstplan(
                 state.config, aufstellung, state.abwesenheiten,
-                state.vorbelegungen, state.gesperrteTage
+                effektiveVorbelegungen, state.gesperrteTage
             )
             res to aufstellung
         }
@@ -546,7 +567,7 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
                     val d = plan.getValue(w to t)
                     val mitglieder = (aufstellung.aktivePaare[d.paar]
                         ?: state.config.teams[d.paar].orEmpty()) + listOfNotNull(d.springer)
-                    PlanEintrag(w, t, d.paar, d.springer, mitglieder, (w to t) in state.vorbelegungen)
+                    PlanEintrag(w, t, d.paar, d.springer, mitglieder, (w to t) in state.vorbelegungen || (w to t) in patternVorbelegungen)
                 }
             }
         }

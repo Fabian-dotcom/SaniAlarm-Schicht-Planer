@@ -25,6 +25,8 @@ data class SaniteamDatei(
     val historie: List<HistorischeSchicht> = emptyList(),
     /** Schulische Termine (Klassenarbeiten, Ferien etc.) fuer Kalender/Heatmap */
     val schultermine: List<Schultermin> = emptyList(),
+    /** Wiederkehrende Vorbelegungen ('jede 2. Woche Freitag ...') */
+    val wiederkehrend: List<WiederkehrendeVorbelegung> = emptyList(),
 )
 
 @Serializable
@@ -68,6 +70,19 @@ data class HistorischeSchicht(
 // ==============================================================================
 // SCHULTERMINE (Klassenarbeiten etc.) - Fundament fuer Kalender/Heatmap (#53-55)
 // ==============================================================================
+
+/**
+ * Wiederkehrende Vorbelegung (#36): 'Jede 2. Woche' etc.
+ * alleXTage = Rhythmus (1 = jede Woche, 2 = jede zweite Woche), startOffset = Erste Woche (0-basiert)
+ */
+@Serializable
+data class WiederkehrendeVorbelegung(
+    val tag: String,                  // Wochentag, z.B. "Freitag"
+    val paar: String,
+    val springer: String? = null,
+    val alleXWochen: Int = 1,
+    val startWoche: Int = 1,          // 1 oder 2 (bei alleXWochen=2)
+)
 
 @Serializable
 data class Schultermin(

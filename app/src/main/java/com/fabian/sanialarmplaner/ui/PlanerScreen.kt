@@ -963,6 +963,10 @@ fun VorbelegungTab(vm: PlanerViewModel) {
         ) { Text("Hinzufügen") }
 
         Spacer(Modifier.height(16.dp))
+        // ---------------- Wiederkehrende Muster (#36) -----------------------
+        WiederkehrendEditor(vm)
+
+        Spacer(Modifier.height(16.dp))
         // ---------------- Gesperrte Tage (kein Dienst, z.B. schulfrei) ------
         Text("Kein Dienst (z.B. schulfrei)", style = MaterialTheme.typography.titleMedium)
         Text(
@@ -1004,6 +1008,66 @@ fun VorbelegungTab(vm: PlanerViewModel) {
             }
         }
         Spacer(Modifier.height(80.dp))
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun WiederkehrendEditor(vm: PlanerViewModel) {
+    val state = vm.state
+    var tag by remember { mutableStateOf(Wochentage.dienst.first()) }
+    var paar by remember { mutableStateOf(state.config.teams.keys.firstOrNull() ?: "") }
+    var rhythmus by remember { mutableStateOf(1) }
+    var startWoche by remember { mutableStateOf(1) }
+
+    Text("Wiederkehrende Muster", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "z.B. 'Jede 2. Woche Freitag Team X' — wird bei jeder Planung automatisch als Vorbelegung gesetzt.",
+        style = MaterialTheme.typography.bodySmall
+    )
+    Spacer(Modifier.height(6.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        LabeledDropdown("Tag", Wochentage.dienst, tag, Modifier.weight(1f)) { tag = it }
+        LabeledDropdown("Rhythmus", listOf("jede Woche", "jede 2. Woche"),
+            if (rhythmus == 1) "jede Woche" else "jede 2. Woche", Modifier.weight(1f)) {
+            rhythmus = if (it == "jede Woche") 1 else 2
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    LabeledDropdown("Team", state.config.teams.keys.toList(), paar, Modifier.fillMaxWidth()) { paar = it }
+    if (rhythmus == 2) {
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Startet in Woche:", style = MaterialTheme.typography.bodySmall)
+            FilterChip(selected = startWoche == 1, onClick = { startWoche = 1 }, label = { Text("1") })
+            FilterChip(selected = startWoche == 2, onClick = { startWoche = 2 }, label = { Text("2") })
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    Button(
+        onClick = {
+            vm.fuegeWiederkehrendesMusterHinzu(
+                com.fabian.sanialarmplaner.data.WiederkehrendeVorbelegung(
+                    tag, paar, null, rhythmus, startWoche
+                )
+            )
+        },
+        enabled = paar.isNotEmpty(), modifier = Modifier.fillMaxWidth()
+    ) { Text("Muster hinzufügen") }
+
+    if (state.datei.wiederkehrend.isNotEmpty()) {
+        Spacer(Modifier.height(6.dp))
+        state.datei.wiederkehrend.forEach { m ->
+            Card(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${if (m.alleXWochen == 1) "Jede Woche" else "Jede 2. Woche (ab W${m.startWoche})"}, ${m.tag}: ${m.paar}",
+                        Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { vm.loescheWiederkehrendesMuster(m) }) { Text("×") }
+                }
+            }
+        }
     }
 }
 
