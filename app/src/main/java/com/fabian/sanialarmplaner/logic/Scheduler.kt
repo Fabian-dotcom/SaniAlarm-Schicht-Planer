@@ -276,7 +276,64 @@ data class PlanErgebnis(
     val plan: Map<Schluessel, Dienst>? = null,
     val entschärfteRegeln: List<String> = emptyList(),
     val versuche: Int = 0,
+    /** Konkrete Konflikte bei den Vorbelegungen (leer = ok). */
+    val vorbelegungsProbleme: List<String> = emptyList(),
 )
+
+/**
+ * Prueft Vorbelegungen auf Konflikte (#51): gleiche Woche, gleicher Tag doppelt,
+ * Sperrtag-Verstoss, abwesende Personen, unregelkonforme Kombinationen.
+ */
+fun validiereVorbelegungen(
+    config: AppConfig,
+    aufstellung: Aufstellung,
+    vorbelegungen: Map<Schluessel, Dienst>,
+    gesperrteTage: Set<Int>,
+): List<String> {
+    val probleme = mutableListOf<String>()
+
+    for ((key, d) in vorbelegungen) {
+        val (woche, tag) = key
+        val idx = tagIndex(woche, tag)
+
+        // Gesperrter Tag mit Vorbelegung
+        if (idx in gesperrteTage) {
+            probleme += "Vorbelegung W$woche/$tag kollidiert mit gesperrtem Tag (kein Dienst)"
+        }
+        // Team existiert nicht / ist ausgefallen
+        if (d.paar !in aufstellung.aktivePaare) {
+            probleme += "Team '${d.paar}' ist nicht aktiv (ausgefallen oder unbekannt) — Vorbelegung W$woche/$tag"
+        }
+        // Springer unbekannt
+        d.springer?.let { s ->
+            if (s !in aufstellung.aktiveSpringer) {
+                probleme += "Springer '$s' ist nicht verfügbar — Vorbelegung W$woche/$tag"
+            }
+        }
+        // Sperrtag des Teams
+        if (config.regeln.teamSperrtageAktiv && tag in config.teamSperrtage[d.paar].orEmpty()) {
+            probleme += "'${d.paar}' hat Sperrtag am $tag — Vorbelegung W$woche/$tag verletzt die Regel"
+        }
+    }
+
+    // Gleiches Team mehrmals in derselben Woche
+    if (config.regeln.maxEineSchichtProWoche) {
+        val proWoche = mutableMapOf<Int, MutableSet<String>>()
+        for ((key, d) in vorbelegungen) {
+            val set = proWoche.getOrPut(key.first) { mutableSetOf() }
+            if (!set.add(d.paar)) {
+                probleme += "'${d.paar}' ist mehrfach in Woche ${key.first} vorbelegt"
+            }
+        }
+        // Doppelt vergebene Tage (verschiedene Teams am selben Tag)
+        val tageDoppelt = vorbelegungen.keys.groupBy { it }.filterValues { it.size > 1 }
+        tageDoppelt.keys.forEach { (w, t) ->
+            probleme += "Tag W$w/$t ist doppelt vorbelegt"
+        }
+    }
+
+    return probleme
+}
 
 fun generiereDienstplan(
     config: AppConfig,
@@ -287,14 +344,11 @@ fun generiereDienstplan(
 ): PlanErgebnis {
     if (aufstellung.aktivePaare.isEmpty() && gesperrteTage.size < 10) return PlanErgebnis()
 
-    // Vorbelegungen vorab validieren: widerspruechliche Vorbelegungen (z.B.
-    // zwei Teams in derselben Woche) machen die Suche unloesbar -> sofort abbrechen
-    if (config.regeln.maxEineSchichtProWoche) {
-        val proWoche = mutableMapOf<Int, MutableSet<String>>()
-        for ((key, d) in vorbelegungen) {
-            val set = proWoche.getOrPut(key.first) { mutableSetOf() }
-            if (!set.add(d.paar)) return PlanErgebnis()   // gleiches Team 2x in einer Woche
-        }
+    // Vorbelegungen vorab validieren (#51): widerspruechliche Vorbelegungen
+    // machen die Suche unloesbar -> mit verstaendlicher Fehlermeldung abbrechen
+    val probleme = validiereVorbelegungen(config, aufstellung, vorbelegungen, gesperrteTage)
+    if (probleme.isNotEmpty()) {
+        return PlanErgebnis(vorbelegungsProbleme = probleme)
     }
 
     val streng = config.maxVersuche == 0 || config.modus == "streng"

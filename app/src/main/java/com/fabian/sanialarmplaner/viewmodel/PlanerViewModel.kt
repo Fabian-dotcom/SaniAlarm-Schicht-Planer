@@ -488,7 +488,11 @@ class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamSto
         if (plan == null) {
             state = state.copy(
                 laeuft = false,
-                fehler = "Kein gültiger Plan mit diesen Einschränkungen / Vorbelegungen möglich!",
+                // Konkrete Vorbelegungs-Konflikte anzeigen (#51), sonst allgemein
+                fehler = if (res.vorbelegungsProbleme.isNotEmpty())
+                    "Vorbelegungen haben Konflikte:\n" + res.vorbelegungsProbleme.joinToString("\n") { "• $it" }
+                else
+                    "Kein gültiger Plan mit diesen Einschränkungen / Vorbelegungen möglich!",
                 plan = emptyList(),
                 hinweise = emptyList(),
             )
