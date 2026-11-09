@@ -92,6 +92,8 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
             datei = saniteamStore.laden() ?: SaniteamDatei(),
             ich = prefs,
             karteiSortierung = store.prefsKarteiSortierung(),
+            // Gesperrte Tage aus der .saniteam-Einstellung laden (#39-Persistenz)
+            gesperrteTage = (saniteamStore.laden() ?: SaniteamDatei()).einstellung.gesperrteTage,
         )
         configAusDatei()
     }
@@ -482,6 +484,8 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
             state.vorbelegungen.filterKeys { it.first != woche || it.second != tag }
         else state.vorbelegungen
         state = state.copy(gesperrteTage = neue, vorbelegungen = neueVorbelegungen)
+        // Persistieren in .saniteam (#39)
+        updateDatei { d -> d.copy(einstellung = d.einstellung.copy(gesperrteTage = neue)) }
     }
 
     fun fuegeVorbelegungHinzu(woche: Int, tag: String, paar: String, springer: String?) {
@@ -584,6 +588,7 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
         // Manuelle Vorbelegungen gewinnen gegen Muster
         val effektiveVorbelegungen = patternVorbelegungen + state.vorbelegungen
         state = state.copy(laeuft = true, fehler = null)
+        fortlaufend = "Starte Planung…"
         val ergebnis = withContext(Dispatchers.Default) {
             val aufstellung = verarbeiteAufstellung(state.config, state.kranke, state.abwesenheiten)
             // #53: Klassenarbeiten als harte Regel in die Planung
@@ -591,23 +596,37 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
             val res = generiereDienstplan(
                 state.config, aufstellung, state.abwesenheiten,
                 effektiveVorbelegungen, state.gesperrteTage, kaLookup
-            )
+            ) { schritt ->
+                fortlaufend = schritt
+            }
             res to aufstellung
         }
         val (res, aufstellung) = ergebnis
-        val plan = res.plan
+        var plan = res.plan
+        var teilergebnis = false
+
         if (plan == null) {
-            state = state.copy(
-                laeuft = false,
-                // Konkrete Vorbelegungs-Konflikte anzeigen (#51), sonst allgemein
-                fehler = if (res.vorbelegungsProbleme.isNotEmpty())
-                    "Vorbelegungen haben Konflikte:\n" + res.vorbelegungsProbleme.joinToString("\n") { "• $it" }
-                else
-                    "Kein gültiger Plan mit diesen Einschränkungen / Vorbelegungen möglich!",
-                plan = emptyList(),
-                hinweise = emptyList(),
+            // #40 Intelligente Teilplanung: Trotz Fehlschlag so viel wie moeglich
+            // belegen — die konfliktfreien Tage werden per Greedy gesetzt, die
+            // offenen Tage mit Konfliktgruenden gemeldet.
+            fortlaufend = "Erstelle Teilplan…"
+            val teiler = teilergebnisErzeugen(
+                state.config, aufstellung, state.abwesenheiten,
+                effektiveVorbelegungen, state.gesperrteTage, klassenArbeitLookup()
             )
-            return
+            plan = teiler.plan
+            teilergebnis = teiler.offeneTage.isNotEmpty()
+            if (plan == null) {
+                state = state.copy(
+                    laeuft = false,
+                    fehler = if (res.vorbelegungsProbleme.isNotEmpty())
+                        "Vorbelegungen haben Konflikte:\n" + res.vorbelegungsProbleme.joinToString("\n") { "• $it" }
+                    else "Kein gültiger Plan mit diesen Einschränkungen / Vorbelegungen möglich!",
+                    plan = emptyList(),
+                    hinweise = emptyList(),
+                )
+                return
+            }
         }
 
         val eintraege = Wochen.alle.flatMap { w ->
@@ -620,22 +639,100 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
                     val d = plan.getValue(w to t)
                     val mitglieder = (aufstellung.aktivePaare[d.paar]
                         ?: state.config.teams[d.paar].orEmpty()) + listOfNotNull(d.springer)
-                    PlanEintrag(w, t, d.paar, d.springer, mitglieder, (w to t) in state.vorbelegungen || (w to t) in patternVorbelegungen)
+                    PlanEintrag(w, t, d.paar, d.springer, mitglieder,
+                        (w to t) in state.vorbelegungen || (w to t) in patternVorbelegungen)
                 }
             }
         }
+        // Offene Tage markieren (Teilplan): paar = null, aber nicht gesperrt
+        val offeneKeys = state.let { s ->
+            Wochen.alle.flatMap { w ->
+                Wochentage.dienst.map { t -> w to t }
+            }.filter { key ->
+                tagIndex(key.first, key.second) !in s.gesperrteTage && key !in plan
+            }
+        }.toSet()
+        val eintraegeKomplett = eintraege.map { e ->
+            if ((e.woche to e.tag) in offeneKeys) e.copy(paar = null, mitglieder = emptyList()) else e
+        }
         val hinweise = buildList {
+            if (teilergebnis) {
+                add("TEILPLAN: Nicht alle Tage konnten regelkonform besetzt werden — offene Tage sind markiert.")
+                addAll(offeneTageGruende)
+            }
             addAll(res.entschärfteRegeln)
-            // Erklärbare Planung (#44): erklaerungen kommen oben mit rein
             addAll(res.erklaerungen.filter { !res.entschärfteRegeln.contains(it) })
             if (aufstellung.ausgefallenePaare.isNotEmpty()) {
                 add("Ausgefallene Teams: ${aufstellung.ausgefallenePaare.joinToString()}")
             }
             if (res.versuche > 1) add("Benötigte Versuche: ${res.versuche}")
         }
-        state = state.copy(laeuft = false, plan = eintraege, hinweise = hinweise, fehler = null)
+        state = state.copy(laeuft = false, plan = eintraegeKomplett, hinweise = hinweise,
+            fehler = null)
         erinnerungenInvalidiert = true
     }
+
+    private var offeneTageGruende: List<String> = emptyList()
+
+    /** Ergebnis einer Teilplanung (#40): teilweise gefüllter Plan + Konfliktgruende. */
+    private data class Teilergebnis(
+        val plan: Map<Schluessel, Dienst>?,
+        val offeneTage: List<Schluessel>,
+    )
+
+    /**
+     * Greedy-Teilplanung: versucht jeden unvorbelegten, ungesperrten Tag mit der
+     * ersten regelkonformen Besetzung; Tage ohne moegliche Besetzung bleiben offen
+     * und bekommen einen verstaendlichen Konfliktgrund.
+     */
+    private fun teilergebnisErzeugen(
+        config: AppConfig,
+        aufstellung: Aufstellung,
+        abwesenheiten: Abwesenheiten,
+        vorbelegungen: Map<Schluessel, Dienst>,
+        gesperrteTage: Set<Int>,
+        kaLookup: KlassenArbeitLookup,
+    ): Teilergebnis {
+        val alleTage = Wochen.alle.flatMap { w -> Wochentage.dienst.map { Schluessel(w, it) } }
+        val plan = mutableMapOf<Schluessel, Dienst>()
+        plan.putAll(vorbelegungen)
+        val offene = mutableListOf<Schluessel>()
+        val gruende = mutableListOf<String>()
+
+        for (tag in alleTage) {
+            if (tagIndex(tag.first, tag.second) in gesperrteTage) continue
+            if (tag in plan) continue
+            var gesetzt = false
+            for (paar in aufstellung.aktivePaare.keys) {
+                for (springer in aufstellung.aktiveSpringer + listOf<String?>(null)) {
+                    val verstoesse = istGueltig(
+                        plan, tag.first, tag.second, paar, springer, config, abwesenheiten, 0, kaLookup
+                    )
+                    if (verstoesse.isEmpty()) {
+                        plan[tag] = Dienst(paar, springer)
+                        gesetzt = true
+                        break
+                    }
+                }
+                if (gesetzt) break
+            }
+            if (!gesetzt) {
+                offene.add(tag)
+                // Konfliktgruende sammeln: warum geht gar nichts?
+                val gruendeProTeam = aufstellung.aktivePaare.keys.take(3).map { paar ->
+                    val v = istGueltig(plan, tag.first, tag.second, paar, null, config, abwesenheiten, 0, kaLookup)
+                    "${paar}: ${v.firstOrNull()?.beschreibung ?: "unbekannt"}"
+                }
+                gruende.add("Offen: W${tag.first}/${tag.second} — ${gruendeProTeam.joinToString("; ")}")
+            }
+        }
+        offeneTageGruende = gruende
+        return Teilergebnis(plan.ifEmpty { null }, offene)
+    }
+
+    /** Aktueller Schrittwaehrend der Planung (statt nur "Rechnet...") */
+    var fortlaufend by mutableStateOf("")
+        private set
 
     /** true, wenn nach der letzten Generierung noch keine Erinnerungen geplant wurden (#25). */
     var erinnerungenInvalidiert by mutableStateOf(false)
@@ -817,6 +914,32 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
             }
         }
         return result
+    }
+
+    /** Kennzahlen-Engine (#44-Erweiterung): alle 10 Kennzahlen pro Person. */
+    fun kennzahlen(): List<com.fabian.sanialarmplaner.logic.PersonKennzahlen> {
+        val planMitglieder = state.datei.historie.associate { it.datum to it.personNamen }.toMutableMap()
+        // aktueller Plan mit echten Daten einrechnen
+        for (e in state.plan) {
+            if (!e.hatDienst) continue
+            val datum = datumFuer(e.woche, e.tag)?.toString() ?: continue
+            planMitglieder[datum] = e.mitglieder
+        }
+        // Verfuegbare Tage: Personen ohne Krank-/Sperr-/Abwesenheits-Eintraege
+        val verfuegbar = state.datei.personen.filter { it.aktiv }.associate { p ->
+            val name = p.vollerName()
+            var tage = 0
+            for (w in Wochen.alle) for (t in Wochentage.dienst) {
+                val idx = tagIndex(w, t)
+                if (idx in state.gesperrteTage) continue
+                if (name in state.kranke) continue
+                if (idx in state.abwesenheiten[name].orEmpty()) continue
+                if (t in state.config.personSperrtage[name].orEmpty()) continue
+                tage++
+            }
+            name to tage
+        }
+        return com.fabian.sanialarmplaner.logic.KennzahlenEngine.berechne(state.datei, planMitglieder, verfuegbar)
     }
 
     fun statistik(): List<PersonenStatistik> {

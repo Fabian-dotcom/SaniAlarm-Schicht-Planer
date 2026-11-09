@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,7 +61,7 @@ fun PersonenTab(vm: PlanerViewModel) {
                 Text(
                     if (suche.isBlank()) "Personen-Kartei (${state.datei.personen.size})"
                     else "Treffer: ${gefilterte.size} von ${state.datei.personen.size}",
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.headlineMedium
                 )
             }
             // Ansicht umschalten
@@ -73,14 +74,29 @@ fun PersonenTab(vm: PlanerViewModel) {
             Spacer(Modifier.width(6.dp))
             Button(onClick = { neu = true }) { Text("+ Neu") }
         }
-        Text(
-            "Alle Angaben werden lokal in der .saniteam-Datei gespeichert (Export/Import in den Einstellungen). Ausgebildete Personen ohne Team dienen als Springer. Jedes Team braucht mindestens 1 ausgebildete Person.",
-            style = MaterialTheme.typography.bodySmall
-        )
-        OutlinedButton(onClick = { zeigeQrBeitritt = true }) {
-            Text("Beitritt per QR-Code")
+        // Aktionen als Sektions-Karte (ProfilStil statt verstreuter Buttons)
+        Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            Column(Modifier.padding(vertical = 4.dp)) {
+            Row(
+                Modifier.fillMaxWidth().clickable { zeigeQrBeitritt = true }.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Beitritt per QR-Code", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            HorizontalDivider(modifier = Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    "Jedes Team braucht mind. 1 ausgebildete Person. Angaben bleiben lokal (.saniteam).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(4.dp))
 
         // Volltextsuche (#40)
         OutlinedTextField(
@@ -381,6 +397,39 @@ fun StatistikTab(vm: PlanerViewModel) {
         Spacer(Modifier.height(12.dp))
         Text("Vergangene Schichten", style = MaterialTheme.typography.titleMedium)
         HistorieEditor(vm)
+
+        Spacer(Modifier.height(12.dp))
+        Text("Kennzahlen (bewertungsmodell)", style = MaterialTheme.typography.titleMedium)
+        val kennzahlen = vm.kennzahlen()
+        if (kennzahlen.isEmpty()) {
+            Text("Keine Personen.", style = MaterialTheme.typography.bodySmall)
+        } else {
+            kennzahlen.forEach { k ->
+                Card(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                    Column(Modifier.padding(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(k.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                            Text("Vertrauen: ${k.datenVertrauen}", style = MaterialTheme.typography.labelSmall,
+                                color = when (k.datenVertrauen) {
+                                    "hoch" -> MaterialTheme.colorScheme.primary
+                                    "mittel" -> MaterialTheme.colorScheme.secondary
+                                    else -> MaterialTheme.colorScheme.error
+                                })
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Kennzahl("Index", "%.2f".format(k.belastungsIndex))
+                            Kennzahl("Kurzzeit", "%.2f".format(k.kurzzeitBelastung))
+                            Kennzahl("Fairness", "%+.0f%%".format(k.fairnessAbweichung * 100))
+                            Kennzahl("Flex.", "${k.teamFlexibilitaet}")
+                            Kennzahl("Quali", "${k.qualifikationsBeitrag}")
+                        }
+                        Text(k.datenHinweis, style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
 
         Spacer(Modifier.height(12.dp))
         Text("Belastungsindex", style = MaterialTheme.typography.titleMedium)
@@ -807,6 +856,15 @@ fun EinsatzLimitEditor(vm: PlanerViewModel) {
                 }
             }) { Text("Entfernen") }
         }
+    }
+}
+
+@Composable
+fun Kennzahl(label: String, wert: String) {
+    Column {
+        Text(wert, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        Text(label, style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

@@ -360,18 +360,38 @@ fun generiereDienstplan(
     vorbelegungen: Map<Schluessel, Dienst> = emptyMap(),
     gesperrteTage: Set<Int> = emptySet(),
     klassenArbeiten: KlassenArbeitLookup? = null,
+    fortschritt: ((String) -> Unit)? = null,
 ): PlanErgebnis {
     if (aufstellung.aktivePaare.isEmpty() && gesperrteTage.size < 10) return PlanErgebnis()
 
-    // Vorbelegungen vorab validieren (#51): widerspruechliche Vorbelegungen
-    // machen die Suche unloesbar -> mit verstaendlicher Fehlermeldung abbrechen
+    // Vorbelegungen vorab validieren (#51)
     val probleme = validiereVorbelegungen(config, aufstellung, vorbelegungen, gesperrteTage)
-    if (probleme.isNotEmpty()) {
-        return PlanErgebnis(vorbelegungsProbleme = probleme)
+    // Inaktive Teams/Springer: NICHT blockieren — Vorbelegungen mit ausgefallenem
+    // Team werden ignoriert statt alles scheitern zu lassen ("immer Fehler"-Falle)
+    val hart = probleme.filterNot {
+        it.contains("nicht aktiv") || it.contains("nicht verfügbar")
     }
+    if (hart.isNotEmpty()) return PlanErgebnis(vorbelegungsProbleme = hart)
+    val nutzbare = vorbelegungen.filter { (_, d) ->
+        d.paar in aufstellung.aktivePaare &&
+            (d.springer == null || d.springer in aufstellung.aktiveSpringer)
+    }
+    return generiereMitVorbelegungen(config, aufstellung, abwesenheiten, nutzbare, gesperrteTage, klassenArbeiten, fortschritt)
+}
+
+private fun generiereMitVorbelegungen(
+    config: AppConfig,
+    aufstellung: Aufstellung,
+    abwesenheiten: Abwesenheiten,
+    vorbelegungen: Map<Schluessel, Dienst>,
+    gesperrteTage: Set<Int>,
+    klassenArbeiten: KlassenArbeitLookup?,
+    fortschritt: ((String) -> Unit)? = null,
+): PlanErgebnis {
 
     val streng = config.maxVersuche == 0 || config.modus == "streng"
     val stufen = if (streng) listOf(0) else listOf(0, 1, 2)
+    val stufenNamen = mapOf(0 to "mit allen Regeln", 1 to "mit gelockerter Fairness", 2 to "mit gelockerten Weichregeln")
     for (entspannung in stufen) {
         // Vorbelegungen veraendern die Loesbarkeit; mit hohem Versuchslimit +
         // Zeitdeckel bleibt die Suche bei schwierigen Vorbelegungen responsiv.
@@ -379,6 +399,7 @@ fun generiereDienstplan(
         val deadline = System.currentTimeMillis() + 10_000L   // max 10 s pro Stufe
         for (versuch in 1..versuchLimit) {
             if (System.currentTimeMillis() > deadline) break
+            fortschritt?.invoke("Versuch $versuch/${versuchLimit.coerceAtMost(20)} ${stufenNamen[entspannung]}")
             val seed = if (config.seed != 0L) config.seed + entspannung * 1_000_000L + versuch
                        else Random(System.nanoTime()).nextLong()
             val plan = versucheMitSeed(

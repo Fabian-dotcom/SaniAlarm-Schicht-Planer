@@ -8,7 +8,11 @@ import androidx.compose.ui.unit.dp
 import com.fabian.sanialarmplaner.viewmodel.PlanerViewModel
 import kotlinx.coroutines.launch
 
-/** "Mehr"-Bereich: Ausfälle, Vorbelegung, Statistik, Einstellungen als Unterseiten. */
+/**
+ * "Mehr"-Bereich: Ausfälle, Vorbelegung, Statistik, Einstellungen als Unterseiten.
+ * Stil wie ProfilTab: Sektions-Karten, klare Chip-Navigation.
+ * Plan-generieren nur auf Plan- und Vorbelegungs-Seite (nicht mehr global).
+ */
 @Composable
 fun MehrTab(vm: PlanerViewModel, unterseite: String, onUnterseite: (String) -> Unit) {
     val coroutineScope = rememberCoroutineScope()
@@ -53,15 +57,21 @@ fun MehrTab(vm: PlanerViewModel, unterseite: String, onUnterseite: (String) -> U
             }
         }
 
-        // Generieren-Button sichtbar auf Planungs-relevanten Unterseiten
-        if (unterseite in listOf("ausfaelle", "vorbelegung")) {
+        // Plan generieren NUR auf Vorbelegung (Plan-Tab hat seinen eigenen Button);
+        // mit aktuellem Schritt statt "Rechnet..."
+        if (unterseite == "vorbelegung") {
             Button(
                 onClick = { coroutineScope.launch { vm.generiere() } },
                 enabled = !state.laeuft,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(12.dp)
-            ) { Text(if (state.laeuft) "Rechnet…" else "Plan generieren") }
+            ) {
+                Text(
+                    if (state.laeuft) vm.fortlaufend.ifBlank { "Rechnet…" }
+                    else "Plan generieren"
+                )
+            }
         }
     }
 }

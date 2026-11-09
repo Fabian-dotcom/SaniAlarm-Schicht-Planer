@@ -54,6 +54,8 @@ data class PlanEinstellung(
     val teamSperrtage: Map<String, List<String>> = emptyMap(),
     val personSperrtage: Map<String, List<String>> = emptyMap(),
     val personMaxEinsaetze: Map<String, Int> = emptyMap(),
+    /** Tage ohne jeden Dienst (schulfrei etc.), Indizes 0..19 — persistiert (#39/#58) */
+    val gesperrteTage: Set<Int> = emptySet(),
     /** Regel-Schalter */
     val regeln: RegelKonfig = RegelKonfig(),
     val modus: String = "normal",

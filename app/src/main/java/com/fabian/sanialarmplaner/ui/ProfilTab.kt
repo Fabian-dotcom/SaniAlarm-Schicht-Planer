@@ -1,5 +1,9 @@
 package com.fabian.sanialarmplaner.ui
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import com.fabian.sanialarmplaner.ui.theme.PendingOrange
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -28,127 +32,111 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun ProfilTab(vm: PlanerViewModel, goto: (String) -> Unit) {
     val state = vm.state
+    val scope = rememberCoroutineScope()
     var profilAuswahl by remember { mutableStateOf(false) }
     val ich = state.ich
-    val ichPerson = state.datei.personen.firstOrNull { it.vollerName() == ich }
-    val meineDienste = if (ich.isBlank()) emptyList() else state.plan.filter { ich in it.mitglieder }
-    val naechsterDienst = meineDienste.firstOrNull()
-    val formatter = DateTimeFormatter.ofPattern("dd.MM.")
+    val heute = LocalDate.now()
+    val formatter = DateTimeFormatter.ofPattern("EEEE, dd.MM.", java.util.Locale.GERMANY)
+
+    val aktiveSanis = state.datei.personen.count { it.aktiv }
+    val diensteImPlan = state.plan.count { it.hatDienst }
+    val ausfaelle = (state.kranke + state.abwesenheiten.filter { it.value.isNotEmpty() }.keys).size
+
+    // Nächster Dienst = frühester Dienst ab heute (nicht nur der erste im Plan)
+    val naechster = if (ich.isBlank()) null else state.plan
+        .filter { it.hatDienst && ich in it.mitglieder }
+        .mapNotNull { e -> vm.datumFuer(e.woche, e.tag)?.let { it to e } }
+        .filter { !it.first.isBefore(heute) }
+        .minByOrNull { it.first }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // ---- Header: Avatar + Name + Status ----
+        // Kopfzeile
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(56.dp)
-                    .background(if (ich.isBlank()) BadgeGrau else ActiveSaniBlue, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    if (ich.isBlank()) "?" else ich.split(" ").first().take(1).uppercase(),
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    if (ich.isBlank()) "Profil einrichten" else ich,
+                    if (ich.isBlank()) "Willkommen" else "Hallo, ${ich.split(" ").first()}",
                     style = MaterialTheme.typography.headlineMedium
                 )
                 Text(
-                    if (ichPerson?.ausbildungAbgeschlossen == true) "Ausgebildete:r Sanis"
-                    else if (ichPerson != null) "Sanis in Ausbildung"
-                    else "Noch kein Profil verknüpft",
+                    "Dienstplan Dashboard",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            TextButton(onClick = { profilAuswahl = true }) { Text(if (ich.isBlank()) "Einrichten" else "Wechseln") }
+            IconButton(onClick = { goto("einstellungen") }) {
+                Icon(Icons.Default.Settings, contentDescription = "Einstellungen")
+            }
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .background(if (ich.isBlank()) BadgeGrau else ActiveSaniBlue, CircleShape)
+                    .clickable { profilAuswahl = true },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    if (ich.isBlank()) "?" else ich.take(1).uppercase(),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White
+                )
+            }
         }
 
-        // ---- Mein naechster Dienst ----
+        // Kennzahlen
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            StatKachel("Aktive Sanis", "$aktiveSanis", ActiveSaniBlue, Modifier.weight(1f))
+            StatKachel("Dienste", "$diensteImPlan", MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
+            StatKachel(
+                "Ausfälle", "$ausfaelle",
+                if (ausfaelle > 0) ConflictRed else MaterialTheme.colorScheme.onSurface,
+                Modifier.weight(1f)
+            )
+        }
+
+        // Nächster Dienst
         SectionCard("Mein nächster Dienst") {
-            if (naechsterDienst == null) {
+            if (naechster == null) {
                 Text(
-                    if (ich.isBlank()) "Richte zuerst dein Profil ein."
-                    else if (state.plan.isEmpty()) "Noch kein Plan generiert — öffne den Plan-Tab."
-                    else "Du bist im aktuellen Plan nicht eingeteilt.",
+                    when {
+                        ich.isBlank() -> "Tippe oben auf den Kreis, um dein Profil zu wählen."
+                        state.plan.isEmpty() -> "Noch kein Plan erstellt."
+                        else -> "Kein weiterer Dienst in diesem Plan."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
-                val datum = vm.datumFuer(naechsterDienst.woche, naechsterDienst.tag)
+                val (datum, dienst) = naechster
                 Text(
-                    buildString {
-                        append("${naechsterDienst.tag}")
-                        datum?.let { append(", ${it.format(formatter)}") }
-                        append(" · Woche ${naechsterDienst.woche}")
-                    },
+                    datum.format(formatter),
                     style = MaterialTheme.typography.titleLarge,
                     color = ActiveSaniBlue
                 )
-                Spacer(Modifier.height(4.dp))
-                Text(naechsterDienst.mitglieder.joinToString(" · "), style = MaterialTheme.typography.bodyLarge)
-                naechsterDienst.springer?.let {
-                    Text("Springer: $it", style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    (dienst.mitglieder + listOfNotNull(dienst.springer).filter { it !in dienst.mitglieder })
+                        .joinToString(" · "),
+                    style = MaterialTheme.typography.bodyLarge
+                )
             }
         }
 
-        // ---- Meine Einsatzbilanz ----
-        SectionCard("Meine Einsatzbilanz") {
-            if (ich.isBlank()) {
-                Text("Profil einrichten, um deine Statistik zu sehen.", style = MaterialTheme.typography.bodyMedium)
-            } else {
-                val stats = vm.statistik().firstOrNull { it.name.startsWith(ich.split(" ").first()) }
-                if (stats == null) {
-                    Text("Noch keine Einsätze erfasst.", style = MaterialTheme.typography.bodyMedium)
-                } else {
-                    Row(Modifier.fillMaxWidth()) {
-                        StatBox("Geplant", "${stats.geplant}", Modifier.weight(1f))
-                        StatBox("Gesamt", "${stats.geplant + stats.historisch}", Modifier.weight(1f))
-                        StatBox("Index", "%.2f".format(stats.belastungsIndex), Modifier.weight(1f))
-                    }
-                }
-            }
+        // Aktionen
+        if (state.config.teams.isNotEmpty()) {
+            Button(
+                onClick = { scope.launch { vm.generiere() } },
+                enabled = !state.laeuft,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                shape = MaterialTheme.shapes.large
+            ) { Text(if (state.laeuft) "Rechnet…" else "Plan generieren") }
         }
-
-        // ---- Alle meine Dienste ----
-        if (meineDienste.size > 1) {
-            SectionCard("Alle meine Dienste (${meineDienste.size})") {
-                meineDienste.forEachIndexed { i, e ->
-                    if (i > 0) HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-                    val datum = vm.datumFuer(e.woche, e.tag)
-                    Text(
-                        "${e.tag}${datum?.let { ", ${it.format(formatter)}" } ?: ""} (W${e.woche}): ${e.mitglieder.joinToString()}",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
-            }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(onClick = { goto("plan") }, modifier = Modifier.weight(1f)) { Text("Plan") }
+            OutlinedButton(onClick = { goto("ausfaelle") }, modifier = Modifier.weight(1f)) { Text("Ausfälle") }
+            OutlinedButton(onClick = { goto("statistik") }, modifier = Modifier.weight(1f)) { Text("Statistik") }
         }
-
-        // ---- Schnellzugriff ----
-        SectionCard("Schnellzugriff") {
-            QuickRow("Plan ansehen") { goto("plan") }
-            SectionDivider()
-            QuickRow("Ausfälle melden") { goto("ausfaelle") }
-            SectionDivider()
-            QuickRow("Vorbelegungen") { goto("vorbelegung") }
-            SectionDivider()
-            QuickRow("Kalender & Schultermine") { goto("kalender") }
-            SectionDivider()
-            QuickRow("Statistik") { goto("statistik") }
-            SectionDivider()
-            QuickRow("Einstellungen") { goto("einstellungen") }
-        }
-
-        Spacer(Modifier.height(16.dp))
     }
 
     if (profilAuswahl) {
@@ -172,29 +160,21 @@ private fun SectionCard(titel: String, content: @Composable ColumnScope.() -> Un
 }
 
 @Composable
-private fun SectionDivider() {
-    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp),
-        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-}
-
-@Composable
-private fun QuickRow(titel: String, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+private fun StatKachel(label: String, wert: String, farbe: Color, modifier: Modifier = Modifier) {
+    Card(
+        modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Text(titel, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun StatBox(label: String, wert: String, modifier: Modifier = Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(wert, style = MaterialTheme.typography.headlineMedium,
-            color = ActiveSaniBlue, fontWeight = FontWeight.Bold)
-        Text(label, style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.padding(12.dp)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(wert, style = MaterialTheme.typography.headlineMedium, color = farbe)
+        }
     }
 }
 

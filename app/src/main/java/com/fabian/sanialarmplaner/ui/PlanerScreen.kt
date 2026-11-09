@@ -37,46 +37,51 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.ui.graphics.vector.ImageVector
+
+private data class NavZiel(val key: String, val label: String, val icon: ImageVector)
+
+private val NAV_ZIELE = listOf(
+    NavZiel("profil", "Start", Icons.Default.Home),
+    NavZiel("plan", "Plan", Icons.AutoMirrored.Filled.List),
+    NavZiel("personen", "Kartei", Icons.Default.Person),
+    NavZiel("kalender", "Kalender", Icons.Default.DateRange),
+    NavZiel("mehr", "Mehr", Icons.Default.MoreVert),
+)
+
 // ==============================================================================
-// HAUPT-SCREEN: Bottom-Navigation (5 Kernbereiche) + "Mehr"-Sheet
+// HAUPT-SCREEN: Bottom-Navigation mit echten Icons
 // ==============================================================================
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlanerScreen(vm: PlanerViewModel) {
-    val state = vm.state
-    var seite by remember { mutableStateOf("profil") }   // profil|plan|personen|kalender|mehr
-    var mehrSheet by remember { mutableStateOf(false) }
-    var unterseite by remember { mutableStateOf("ausfaelle") }   // innerhalb von "Mehr"
-    val coroutineScope = rememberCoroutineScope()
+    var seite by remember { mutableStateOf("profil") }
+    var unterseite by remember { mutableStateOf("ausfaelle") }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = seite == "profil", onClick = { seite = "profil" },
-                    icon = { Text("Mein", style = MaterialTheme.typography.labelMedium) },
-                    label = { Text("Profil") }
-                )
-                NavigationBarItem(
-                    selected = seite == "plan", onClick = { seite = "plan" },
-                    icon = { Text("Plan", style = MaterialTheme.typography.labelMedium) },
-                    label = { Text("Plan") }
-                )
-                NavigationBarItem(
-                    selected = seite == "personen", onClick = { seite = "personen" },
-                    icon = { Text("Team", style = MaterialTheme.typography.labelMedium) },
-                    label = { Text("Kartei") }
-                )
-                NavigationBarItem(
-                    selected = seite == "kalender", onClick = { seite = "kalender" },
-                    icon = { Text("Kal.", style = MaterialTheme.typography.labelMedium) },
-                    label = { Text("Kalender") }
-                )
-                NavigationBarItem(
-                    selected = seite == "mehr", onClick = { seite = "mehr" },
-                    icon = { Text("â€¦", style = MaterialTheme.typography.labelMedium) },
-                    label = { Text("Mehr") }
-                )
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                NAV_ZIELE.forEach { ziel ->
+                    NavigationBarItem(
+                        selected = seite == ziel.key,
+                        onClick = { seite = ziel.key },
+                        icon = { Icon(ziel.icon, contentDescription = ziel.label) },
+                        label = { Text(ziel.label, maxLines = 1) },
+                    )
+                }
             }
         }
     ) { padding ->
@@ -84,15 +89,15 @@ fun PlanerScreen(vm: PlanerViewModel) {
             when (seite) {
                 "profil" -> ProfilTab(vm, goto = { ziel ->
                     when (ziel) {
-                        "plan" -> seite = "plan"
-                        "personen" -> seite = "personen"
-                        "kalender" -> seite = "kalender"
-                        "ausfaelle", "vorbelegung", "statistik", "einstellungen" -> {
-                            unterseite = ziel; seite = "mehr"
-                        }
+                        "plan", "personen", "kalender" -> seite = ziel
+                        else -> { unterseite = ziel; seite = "mehr" }
                     }
                 })
-                "plan" -> PlanTab(vm, onWeiter = { unterseite = "ausfaelle"; seite = "mehr" }, onPersonen = { seite = "personen" })
+                "plan" -> PlanTab(
+                    vm,
+                    onWeiter = { unterseite = "ausfaelle"; seite = "mehr" },
+                    onPersonen = { seite = "personen" },
+                )
                 "personen" -> PersonenTab(vm)
                 "kalender" -> KalenderTab(vm)
                 "mehr" -> MehrTab(vm, unterseite, onUnterseite = { unterseite = it })
@@ -101,129 +106,153 @@ fun PlanerScreen(vm: PlanerViewModel) {
     }
 }
 
-
 // ==============================================================================
-// TAB 1: PLAN
+// TAB: PLAN  (eine Hauptaktion, Rest im Menue)
 // ==============================================================================
 @Composable
 fun PlanTab(vm: PlanerViewModel, onWeiter: () -> Unit, onPersonen: () -> Unit) {
     val state = vm.state
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var zeigeTausch by remember { mutableStateOf(false) }
+    var menue by remember { mutableStateOf(false) }
 
     Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(vertical = 8.dp, horizontal = 12.dp)
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onWeiter, modifier = Modifier.weight(1f)) {
-                Text("AusfÃ¤lle")
-            }
-            OutlinedButton(onClick = onPersonen, modifier = Modifier.weight(1f)) {
-                Text("Kartei")
-            }
-        }
-
-        if (state.config.teams.isEmpty()) {
-            Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                Column(Modifier.padding(12.dp)) {
-                    Text("Noch keine Daten", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "Lege zuerst Personen in der Kartei an (Tab \"Personen\") oder importiere eine .saniteam-Datei (Einstellungen). Die Teams werden dann automatisch aus den PartnerwÃ¼nschen gebildet.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-        }
-
-        state.fehler?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
-        }
-        state.hinweise.forEach {
-            AssistChip(onClick = {}, label = { Text(it) }, modifier = Modifier.padding(top = 4.dp))
-        }
-
-        // Monatsnavigation (#42)
-        Row(
-            Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
+        // Monat + Menue
+        Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { vm.wechselPlanMonat(-1) }, enabled = !state.laeuft) {
-                Text("â€¹", style = MaterialTheme.typography.titleLarge)
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Vorheriger Monat")
             }
             val monatsName = state.planMonat.month
                 .getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.GERMANY)
                 .replaceFirstChar { it.uppercase() }
             Text(
                 "$monatsName ${state.planMonat.year}",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 12.dp)
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
             IconButton(onClick = { vm.wechselPlanMonat(1) }, enabled = !state.laeuft) {
-                Text("â€º", style = MaterialTheme.typography.titleLarge)
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Nächster Monat")
+            }
+            if (state.plan.isNotEmpty()) {
+                Box {
+                    IconButton(onClick = { menue = true }) { Icon(Icons.Default.MoreVert, "Weitere Aktionen") }
+                    DropdownMenu(expanded = menue, onDismissRequest = { menue = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Schichten tauschen") },
+                            leadingIcon = { Icon(Icons.Default.Refresh, null) },
+                            onClick = { menue = false; zeigeTausch = true },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Ausfälle melden") },
+                            leadingIcon = { Icon(Icons.Default.Warning, null) },
+                            onClick = { menue = false; onWeiter() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Text kopieren") },
+                            leadingIcon = { Icon(Icons.Default.Create, null) },
+                            onClick = { menue = false; clipboard.setText(AnnotatedString(vm.planAlsText())) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Teilen") },
+                            leadingIcon = { Icon(Icons.Default.Share, null) },
+                            onClick = {
+                                menue = false
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, vm.planAlsText())
+                                }
+                                context.startActivity(Intent.createChooser(intent, "Plan teilen"))
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Als PDF teilen") },
+                            leadingIcon = { Icon(Icons.Default.Share, null) },
+                            onClick = { menue = false; teileAlsPdf(context, vm.planAlsText()) },
+                        )
+                        if (vm.erinnerungenInvalidiert) {
+                            DropdownMenuItem(
+                                text = { Text("Erinnerungen aktivieren") },
+                                leadingIcon = { Icon(Icons.Default.Notifications, null) },
+                                onClick = {
+                                    menue = false
+                                    (context as? com.fabian.sanialarmplaner.MainActivity)?.planeErinnerungenFuerPlan()
+                                },
+                            )
+                        }
+                    }
+                }
             }
         }
 
-        if (state.plan.isNotEmpty()) {
-            Spacer(Modifier.height(4.dp))
-            KalenderAnsicht(vm)
-            // Erinnerungen (#25): Einmalig nach Generierung planen
-            if (vm.erinnerungenInvalidiert) {
-                val activity = context as? android.app.Activity
-                OutlinedButton(
-                    onClick = {
-                        (context as? com.fabian.sanialarmplaner.MainActivity)?.planeErinnerungenFuerPlan()
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-                ) { Text("ðŸ”” Erinnerungen fÃ¼r diesen Plan aktivieren") }
-            } else {
-                Text(
-                    "Erinnerungen sind fÃ¼r diesen Plan aktiv (24 h vorher).",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = { zeigeTausch = true },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Schichten tauschen") }
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = {
-                    clipboard.setText(AnnotatedString(vm.planAlsText()))
-                }, modifier = Modifier.weight(1f)) { Text("Text kopieren") }
-                OutlinedButton(onClick = {
-                    val intent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, vm.planAlsText())
-                    }
-                    context.startActivity(Intent.createChooser(intent, "Plan teilen"))
-                }, modifier = Modifier.weight(1f)) { Text("Text teilen") }
-            }
-            Spacer(Modifier.height(8.dp))
-            Button(
-                onClick = { teileAlsPdf(context, vm.planAlsText()) },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Als PDF teilen") }
+        state.fehler?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        // Hinweise nur als eine ruhige Zeile statt vieler Chips
+        if (state.hinweise.isNotEmpty()) {
+            Text(
+                state.hinweise.joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
-        Spacer(Modifier.height(24.dp))
+
+        when {
+            state.config.teams.isEmpty() -> LeererZustand(
+                titel = "Noch keine Teams",
+                text = "Lege zuerst Personen in der Kartei an.",
+                aktion = "Zur Kartei",
+                onAktion = onPersonen,
+            )
+            state.plan.isEmpty() -> LeererZustand(
+                titel = "Kein Plan für diesen Monat",
+                text = "Tippe unten auf „Plan generieren“.",
+            )
+            else -> KalenderAnsicht(vm)
+        }
+
+        if (state.config.teams.isNotEmpty()) {
+            Button(
+                onClick = { scope.launch { vm.generiere() } },
+                enabled = !state.laeuft,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                shape = MaterialTheme.shapes.large,
+            ) { Text(if (state.laeuft) vm.fortlaufend.ifBlank { "Rechnet…" } else "Plan generieren") }
+        }
+        Spacer(Modifier.height(8.dp))
     }
 
-    if (zeigeTausch) {
-        DiensteTauschenDialog(vm) { zeigeTausch = false }
+    if (zeigeTausch) DiensteTauschenDialog(vm) { zeigeTausch = false }
+}
+
+@Composable
+private fun LeererZustand(titel: String, text: String, aktion: String? = null, onAktion: () -> Unit = {}) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            Modifier.padding(20.dp).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(titel, style = MaterialTheme.typography.titleMedium)
+            Text(text, style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (aktion != null) OutlinedButton(onClick = onAktion) { Text(aktion) }
+        }
     }
 }
+
 
 @Composable
 private fun DiensteTauschenDialog(vm: PlanerViewModel, onSchliessen: () -> Unit) {
     val plan = vm.state.plan.sortedWith(compareBy({ it.woche }, { Wochentage.dienst.indexOf(it.tag) }))
     val optionen = plan.associateBy {
-        "Woche ${it.woche} Â· ${it.tag} â€” ${it.mitglieder.joinToString()}"
+        "Woche ${it.woche} · ${it.tag} — ${it.mitglieder.joinToString()}"
     }
     var ersterName by remember(plan) { mutableStateOf(optionen.keys.firstOrNull().orEmpty()) }
     var zweiterName by remember(plan) {
@@ -245,7 +274,7 @@ private fun DiensteTauschenDialog(vm: PlanerViewModel, onSchliessen: () -> Unit)
                 modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("WÃ¤hle die beiden Dienste. Der Tausch wird nur Ã¼bernommen, wenn der gesamte Plan regelkonform bleibt.")
+                Text("Wähle die beiden Dienste. Der Tausch wird nur übernommen, wenn der gesamte Plan regelkonform bleibt.")
                 LabeledDropdown(
                     "Erster Dienst", optionen.keys.toList(), ersterName, Modifier.fillMaxWidth()
                 ) {
@@ -273,7 +302,7 @@ private fun DiensteTauschenDialog(vm: PlanerViewModel, onSchliessen: () -> Unit)
                         Text("${zweiterDienst!!.mitglieder.joinToString()} stimmen dem Tausch zu.")
                     }
                     Text(
-                        "Die Zustimmung wird lokal auf diesem GerÃ¤t bestÃ¤tigt.",
+                        "Die Zustimmung wird lokal auf diesem Gerät bestätigt.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -287,7 +316,7 @@ private fun DiensteTauschenDialog(vm: PlanerViewModel, onSchliessen: () -> Unit)
                 val erste = optionen[ersterName]
                 val zweite = optionen[zweiterName]
                 if (erste == null || zweite == null) {
-                    fehler = listOf("Bitte zwei Dienste auswÃ¤hlen.")
+                    fehler = listOf("Bitte zwei Dienste auswählen.")
                 } else {
                     val ergebnis = vm.tauscheDienste(
                         erste.woche to erste.tag,
@@ -295,7 +324,7 @@ private fun DiensteTauschenDialog(vm: PlanerViewModel, onSchliessen: () -> Unit)
                     )
                     if (ergebnis.isEmpty()) onSchliessen() else fehler = ergebnis
                 }
-            }) { Text("PrÃ¼fen und tauschen") }
+            }) { Text("Prüfen und tauschen") }
         },
         dismissButton = {
             TextButton(onClick = onSchliessen) { Text("Abbrechen") }
@@ -424,7 +453,7 @@ fun KalenderZelle(e: PlanEintrag, modifier: Modifier = Modifier) {
     ) {
         Column(Modifier.padding(6.dp)) {
             if (e.gesperrt) {
-                Text("â€”", style = MaterialTheme.typography.bodySmall,
+                Text("—", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 return@Column
             }
@@ -459,10 +488,10 @@ fun PlanZeile(e: PlanEintrag) {
             Text("${e.tag}: ${e.mitglieder.joinToString()}", style = MaterialTheme.typography.bodyLarge)
             Text(
                 buildString {
-                    append("${e.mitglieder.size}er-Team Â· ${e.paar}")
+                    append("${e.mitglieder.size}er-Team · ${e.paar}")
                     e.springer?.let { append(" + Springer $it") }
-                    if (e.vorbelegt) append(" Â· VORBELEGT")
-                    e.vertretungHinweis?.let { append(" Â· Vertretung: $it") }
+                    if (e.vorbelegt) append(" · VORBELEGT")
+                    e.vertretungHinweis?.let { append(" · Vertretung: $it") }
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -486,15 +515,15 @@ fun AusfaelleTab(vm: PlanerViewModel) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)
     ) {
-        Text("Wer fÃ¤llt aus?", style = MaterialTheme.typography.titleMedium)
+        Text("Wer fällt aus?", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Person abhaken = krank/ganz weg. Ãœber das Calendar-Symbol kannst du pro Person einzelne Tage markieren (tagesgenau, z.B. Urlaub).",
+            "Person abhaken = krank/ganz weg. Über das Calendar-Symbol kannst du pro Person einzelne Tage markieren (tagesgenau, z.B. Urlaub).",
             style = MaterialTheme.typography.bodySmall
         )
         Spacer(Modifier.height(8.dp))
 
         if (allePersonen.isEmpty()) {
-            Text("Keine Personen vorhanden â€“ zuerst Kartei fÃ¼llen.", style = MaterialTheme.typography.bodySmall)
+            Text("Keine Personen vorhanden – zuerst Kartei füllen.", style = MaterialTheme.typography.bodySmall)
         }
 
         allePersonen.forEach { person ->
@@ -528,7 +557,7 @@ fun AusfaelleTab(vm: PlanerViewModel) {
                                     Uri.parse("mailto:${personObj!!.email}")))
                             }) { Text("Mail") }
                         }
-                        TextButton(onClick = { dialogPerson = person }) { Text("Tageâ€¦") }
+                        TextButton(onClick = { dialogPerson = person }) { Text("Tage…") }
                         TextButton(
                             enabled = state.plan.any { person in it.mitglieder },
                             onClick = { tauschPerson = person },
@@ -543,7 +572,7 @@ fun AusfaelleTab(vm: PlanerViewModel) {
         }
         Spacer(Modifier.height(16.dp))
         OutlinedButton(onClick = { vm.allesZuruecksetzen() }, modifier = Modifier.fillMaxWidth()) {
-            Text("Auswahl zurÃ¼cksetzen")
+            Text("Auswahl zurücksetzen")
         }
         Spacer(Modifier.height(80.dp))
     }
@@ -618,7 +647,7 @@ private fun TauschDialog(vm: PlanerViewModel, person: String, onSchliessen: () -
                         FilterChip(
                             selected = meinDienst == (e.woche to e.tag),
                             onClick = { meinDienst = e.woche to e.tag },
-                            label = { Text("W${e.woche} Â· ${e.tag}") },
+                            label = { Text("W${e.woche} · ${e.tag}") },
                         )
                     }
                     Spacer(Modifier.height(4.dp))
@@ -627,18 +656,18 @@ private fun TauschDialog(vm: PlanerViewModel, person: String, onSchliessen: () -
                         FilterChip(
                             selected = partnerDienst == (e.woche to e.tag),
                             onClick = { partnerDienst = e.woche to e.tag },
-                            label = { Text("W${e.woche} Â· ${e.tag} (${e.mitglieder.joinToString()})") },
+                            label = { Text("W${e.woche} · ${e.tag} (${e.mitglieder.joinToString()})") },
                         )
                     }
                     Spacer(Modifier.height(4.dp))
                     if (partner != null && dienstA != null && dienstB != null) {
                         val probleme = vm.pruefeTausch(dienstA, dienstB, person, partner)
                         if (probleme.isEmpty()) {
-                            Text("âœ“ Tausch mit $partner ist regelkonform.",
+                            Text("✓ Tausch mit $partner ist regelkonform.",
                                 color = MaterialTheme.colorScheme.primary)
                         } else {
                             Text("Konflikte:", color = MaterialTheme.colorScheme.error)
-                            probleme.forEach { Text("â€¢ $it", color = MaterialTheme.colorScheme.error) }
+                            probleme.forEach { Text("• $it", color = MaterialTheme.colorScheme.error) }
                         }
                     }
                     meldung?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
@@ -650,7 +679,7 @@ private fun TauschDialog(vm: PlanerViewModel, person: String, onSchliessen: () -
                 Button(onClick = {
                     meldung = if (vm.fuehreTauschAus(dienstA, dienstB, person, partner)) {
                         onSchliessen()
-                        "Tausch durchgefÃ¼hrt."
+                        "Tausch durchgeführt."
                     } else "Tausch verletzt Regeln."
                 }) { Text("Tauschen") }
             }
@@ -673,13 +702,13 @@ private fun VertretungDialog(vm: PlanerViewModel, person: String, onSchliessen: 
 
     AlertDialog(
         onDismissRequest = onSchliessen,
-        title = { Text("Vertretung fÃ¼r $person") },
+        title = { Text("Vertretung für $person") },
         text = {
             Column(
                 modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text("WÃ¤hle den geplanten Dienst und eine verfÃ¼gbare Vertretung.")
+                Text("Wähle den geplanten Dienst und eine verfügbare Vertretung.")
                 if (dienste.isEmpty()) {
                     Text("Diese Person ist im aktuellen Plan nicht eingeteilt.")
                 } else {
@@ -687,10 +716,10 @@ private fun VertretungDialog(vm: PlanerViewModel, person: String, onSchliessen: 
                         FilterChip(
                             selected = ausgewaehlterSchluessel == (eintrag.woche to eintrag.tag),
                             onClick = { ausgewaehlterSchluessel = eintrag.woche to eintrag.tag },
-                            label = { Text("Woche ${eintrag.woche} Â· ${eintrag.tag}") },
+                            label = { Text("Woche ${eintrag.woche} · ${eintrag.tag}") },
                         )
                     }
-                    Text("VorschlÃ¤ge (Springer und niedrigere Belastung zuerst):",
+                    Text("Vorschläge (Springer und niedrigere Belastung zuerst):",
                         style = MaterialTheme.typography.titleSmall)
                     if (vorschlaege.isEmpty()) {
                         Text("Keine regelkonforme Vertretung gefunden.")
@@ -705,7 +734,7 @@ private fun VertretungDialog(vm: PlanerViewModel, person: String, onSchliessen: 
                                     Text(vorschlag.name, style = MaterialTheme.typography.bodyMedium)
                                     Text(
                                         buildString {
-                                            if (vorschlag.ausSpringerReserve) append("Springer-Reserve Â· ")
+                                            if (vorschlag.ausSpringerReserve) append("Springer-Reserve · ")
                                             append("Index %.2f".format(vorschlag.belastungsIndex))
                                         },
                                         style = MaterialTheme.typography.bodySmall,
@@ -718,7 +747,7 @@ private fun VertretungDialog(vm: PlanerViewModel, person: String, onSchliessen: 
                                     ) {
                                         onSchliessen()
                                     } else {
-                                        meldung = "Der Vorschlag ist nicht mehr verfÃ¼gbar. Bitte erneut prÃ¼fen."
+                                        meldung = "Der Vorschlag ist nicht mehr verfügbar. Bitte erneut prüfen."
                                     }
                                 }) { Text("Einsetzen") }
                             }
@@ -726,7 +755,7 @@ private fun VertretungDialog(vm: PlanerViewModel, person: String, onSchliessen: 
                     }
                 }
                 Text(
-                    "Die Ã„nderung gilt nur fÃ¼r den aktuell angezeigten Plan.",
+                    "Die Änderung gilt nur für den aktuell angezeigten Plan.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -753,13 +782,13 @@ fun VorbelegungTab(vm: PlanerViewModel) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)) {
         Text("Bereits besetzte Schichten", style = MaterialTheme.typography.titleMedium)
         Text(
-            "WÃ¤hle feste Schichten aus (z.B. wenn Montag & Dienstag schon gesetzt sind).",
+            "Wähle feste Schichten aus (z.B. wenn Montag & Dienstag schon gesetzt sind).",
             style = MaterialTheme.typography.bodySmall
         )
         Spacer(Modifier.height(8.dp))
 
         if (state.config.teams.isEmpty()) {
-            Text("Keine Teams â€“ zuerst Personen anlegen.", color = MaterialTheme.colorScheme.error)
+            Text("Keine Teams – zuerst Personen anlegen.", color = MaterialTheme.colorScheme.error)
             Spacer(Modifier.height(80.dp))
             return
         }
@@ -783,7 +812,7 @@ fun VorbelegungTab(vm: PlanerViewModel) {
         Button(
             onClick = { vm.fuegeVorbelegungHinzu(woche, tag, paar, springer) },
             enabled = paar.isNotEmpty(), modifier = Modifier.fillMaxWidth()
-        ) { Text("HinzufÃ¼gen") }
+        ) { Text("Hinzufügen") }
 
         Spacer(Modifier.height(16.dp))
         // ---------------- Wiederkehrende Muster (#36) -----------------------
@@ -793,7 +822,7 @@ fun VorbelegungTab(vm: PlanerViewModel) {
         // ---------------- Gesperrte Tage (kein Dienst, z.B. schulfrei) ------
         Text("Kein Dienst (z.B. schulfrei)", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Markiere Tage, an denen GAR KEIN Dienst stattfindet. Der Plan lÃ¤sst diese Tage leer.",
+            "Markiere Tage, an denen GAR KEIN Dienst stattfindet. Der Plan lässt diese Tage leer.",
             style = MaterialTheme.typography.bodySmall
         )
         Spacer(Modifier.height(6.dp))
@@ -825,7 +854,7 @@ fun VorbelegungTab(vm: PlanerViewModel) {
                             "W${key.first}, ${key.second}: ${d.paar}" + (d.springer?.let { " + $it" } ?: ""),
                             Modifier.weight(1f)
                         )
-                        TextButton(onClick = { vm.loescheVorbelegung(key) }) { Text("LÃ¶schen") }
+                        TextButton(onClick = { vm.loescheVorbelegung(key) }) { Text("Löschen") }
                     }
                 }
             }
@@ -845,7 +874,7 @@ fun WiederkehrendEditor(vm: PlanerViewModel) {
 
     Text("Wiederkehrende Muster", style = MaterialTheme.typography.titleMedium)
     Text(
-        "z.B. 'Jede 2. Woche Freitag Team X' â€” wird bei jeder Planung automatisch als Vorbelegung gesetzt.",
+        "z.B. 'Jede 2. Woche Freitag Team X' — wird bei jeder Planung automatisch als Vorbelegung gesetzt.",
         style = MaterialTheme.typography.bodySmall
     )
     Spacer(Modifier.height(6.dp))
@@ -876,7 +905,7 @@ fun WiederkehrendEditor(vm: PlanerViewModel) {
             )
         },
         enabled = paar.isNotEmpty(), modifier = Modifier.fillMaxWidth()
-    ) { Text("Muster hinzufÃ¼gen") }
+    ) { Text("Muster hinzufügen") }
 
     if (state.datei.wiederkehrend.isNotEmpty()) {
         Spacer(Modifier.height(6.dp))
@@ -887,7 +916,7 @@ fun WiederkehrendEditor(vm: PlanerViewModel) {
                         "${if (m.alleXWochen == 1) "Jede Woche" else "Jede 2. Woche (ab W${m.startWoche})"}, ${m.tag}: ${m.paar}",
                         Modifier.weight(1f)
                     )
-                    TextButton(onClick = { vm.loescheWiederkehrendesMuster(m) }) { Text("Ã—") }
+                    TextButton(onClick = { vm.loescheWiederkehrendesMuster(m) }) { Text("×") }
                 }
             }
         }
