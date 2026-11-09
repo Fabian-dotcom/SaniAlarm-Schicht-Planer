@@ -386,6 +386,22 @@ fun PlanTab(vm: PlanerViewModel, onWeiter: () -> Unit, onPersonen: () -> Unit) {
         if (state.plan.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
             KalenderAnsicht(vm)
+            // Erinnerungen (#25): Einmalig nach Generierung planen
+            if (vm.erinnerungenInvalidiert) {
+                val activity = context as? android.app.Activity
+                OutlinedButton(
+                    onClick = {
+                        (context as? com.fabian.sanialarmplaner.MainActivity)?.planeErinnerungenFuerPlan()
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                ) { Text("🔔 Erinnerungen für diesen Plan aktivieren") }
+            } else {
+                Text(
+                    "Erinnerungen sind für diesen Plan aktiv (24 h vorher).",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = { zeigeTausch = true },

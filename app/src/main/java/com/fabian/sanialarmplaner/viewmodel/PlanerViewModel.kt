@@ -558,6 +558,15 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
             if (res.versuche > 1) add("Benötigte Versuche: ${res.versuche}")
         }
         state = state.copy(laeuft = false, plan = eintraege, hinweise = hinweise, fehler = null)
+        erinnerungenInvalidiert = true
+    }
+
+    /** true, wenn nach der letzten Generierung noch keine Erinnerungen geplant wurden (#25). */
+    var erinnerungenInvalidiert by mutableStateOf(false)
+        private set
+
+    fun markiereErinnerungenGeplant() {
+        erinnerungenInvalidiert = false
     }
 
     fun planAlsText(): String {
