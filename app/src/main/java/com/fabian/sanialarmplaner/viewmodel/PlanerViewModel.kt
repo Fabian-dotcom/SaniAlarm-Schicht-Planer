@@ -69,6 +69,8 @@ data class UiState(
     /** Zeitraum-Filter fuer Statistik, null = alles */
     val statistikVon: LocalDate? = null,
     val statistikBis: LocalDate? = null,
+    /** Monat, fuer den der Plan erstellt wird (1. des Monats) */
+    val planMonat: YearMonth = YearMonth.now(),
 )
 
 class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamStore) {
@@ -438,6 +440,37 @@ class PlanerViewModel(private val store: ConfigStore, saniteamStore: SaniteamSto
             hinweise = emptyList(),
             fehler = null,
         )
+    }
+
+    /** Monat vor/zurueck schalten (#42). Wechsel leert Plan + Vorbelegungen. */
+    fun wechselPlanMonat(monate: Int) {
+        val neu = state.planMonat.plusMonths(monate.toLong())
+        state = state.copy(
+            planMonat = neu,
+            plan = emptyList(),
+            vorbelegungen = emptyMap(),
+            gesperrteTage = emptySet(),
+            hinweise = listOf("Monat gewechselt auf ${neu.month} ${neu.year} — Vorbelegungen zurückgesetzt"),
+        )
+    }
+
+    /** Echtes Datum fuer (woche, wochentag) im gewaehlten Plan-Monat. */
+    fun datumFuer(woche: Int, tag: String): LocalDate? {
+        val zielWochentag = try {
+            java.time.DayOfWeek.valueOf(mapName(tag))
+        } catch (_: Exception) { return null }
+        val erster = state.planMonat.atDay(1)
+        // Montag der Woche 1 = erster Montag des Monats (oder der 1., falls Montag)
+        var montag = erster
+        while (montag.dayOfWeek != java.time.DayOfWeek.MONDAY) montag = montag.plusDays(1)
+        var datum = montag.plusDays(((woche - 1) * 7).toLong())
+        while (datum.dayOfWeek != zielWochentag) datum = datum.plusDays(1)
+        return if (datum.month == state.planMonat.month) datum else null
+    }
+
+    private fun mapName(tag: String): String = when (tag) {
+        "Montag" -> "MONDAY"; "Dienstag" -> "TUESDAY"; "Mittwoch" -> "WEDNESDAY"
+        "Donnerstag" -> "THURSDAY"; else -> "FRIDAY"
     }
 
     suspend fun generiere() {

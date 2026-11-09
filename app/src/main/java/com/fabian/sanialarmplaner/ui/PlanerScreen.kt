@@ -357,9 +357,31 @@ fun PlanTab(vm: PlanerViewModel, onWeiter: () -> Unit, onPersonen: () -> Unit) {
             AssistChip(onClick = {}, label = { Text(it) }, modifier = Modifier.padding(top = 4.dp))
         }
 
+        // Monatsnavigation (#42)
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            IconButton(onClick = { vm.wechselPlanMonat(-1) }, enabled = !state.laeuft) {
+                Text("‹", style = MaterialTheme.typography.titleLarge)
+            }
+            val monatsName = state.planMonat.month
+                .getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.GERMANY)
+                .replaceFirstChar { it.uppercase() }
+            Text(
+                "$monatsName ${state.planMonat.year}",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
+            IconButton(onClick = { vm.wechselPlanMonat(1) }, enabled = !state.laeuft) {
+                Text("›", style = MaterialTheme.typography.titleLarge)
+            }
+        }
+
         if (state.plan.isNotEmpty()) {
-            Spacer(Modifier.height(12.dp))
-            KalenderAnsicht(state.plan)
+            Spacer(Modifier.height(4.dp))
+            KalenderAnsicht(vm)
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = { zeigeTausch = true },
@@ -505,15 +527,19 @@ fun teileAlsPdf(context: android.content.Context, planText: String) {
     webView.loadData(html, "text/html; charset=utf-8", "UTF-8")
 }
 
-/** Kalender-Grid: 4 Wochen untereinander, je 5 Tagesspalten mit Kopfzeile. */
+/** Kalender-Grid: 4 Wochen untereinander, je 5 Tagesspalten mit Kopfzeile und echten Daten. */
 @Composable
-fun KalenderAnsicht(plan: List<PlanEintrag>) {
+fun KalenderAnsicht(vm: PlanerViewModel) {
+    val plan = vm.state.plan
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         for (w in Wochen.alle) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(8.dp)) {
+                    val ersterTag = vm.datumFuer(w, "Montag")
                     Text(
-                        "Woche $w",
+                        if (ersterTag != null) {
+                            "Woche $w (${ersterTag.dayOfMonth}.${ersterTag.monthValue}.)"
+                        } else "Woche $w",
                         style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier.padding(bottom = 6.dp)
                     )
