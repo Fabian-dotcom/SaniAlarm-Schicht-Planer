@@ -24,7 +24,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun KalenderTab(vm: PlanerViewModel) {
     var monat by remember { mutableStateOf(YearMonth.now()) }
-    var modus by remember { mutableStateOf(0) }   // 0=Termine, 1=Heatmap
+    var modus by remember { mutableStateOf(0) }   // 0=Termine, 1=Schul-Heatmap, 2=Verfuegbarkeit
     var klassenFilter by remember { mutableStateOf(setOf<String>()) }
     var neuerTermin by remember { mutableStateOf(false) }
     val alleKlassen = vm.klassenListe()
@@ -49,7 +49,8 @@ fun KalenderTab(vm: PlanerViewModel) {
 
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             FilterChip(selected = modus == 0, onClick = { modus = 0 }, label = { Text("Termine") })
-            FilterChip(selected = modus == 1, onClick = { modus = 1 }, label = { Text("Heatmap") })
+            FilterChip(selected = modus == 1, onClick = { modus = 1 }, label = { Text("Schul-Heatmap") })
+            FilterChip(selected = modus == 2, onClick = { modus = 2 }, label = { Text("Verfügbarkeit") })
         }
         if (alleKlassen.isNotEmpty()) {
             Text("Klassen-Filter (leer = alle):", style = MaterialTheme.typography.bodySmall)
@@ -70,6 +71,8 @@ fun KalenderTab(vm: PlanerViewModel) {
         val von = monat.atDay(1)
         val bis = monat.atEndOfMonth()
         val analyse = vm.tagesAnalyse(von, bis, klassenFilter)
+        // #55: Verfuegbarkeit fuer Modus 2
+        val verfuegbarkeit = if (modus == 2) vm.verfuegbarkeitProTag(von, bis) else emptyMap()
 
         // Monatsraster mit abgerundeten Ecken
         Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
@@ -90,7 +93,8 @@ fun KalenderTab(vm: PlanerViewModel) {
                             firstRow = false
                         }
                         while (inZeile < 7 && cursor <= bis) {
-                            TagesZelle(cursor, analyse[cursor], modus, Modifier.weight(1f))
+                            TagesZelle(cursor, analyse[cursor], modus, Modifier.weight(1f),
+                                verfuegbarkeit[cursor], vm.state.datei.personen.count { it.aktiv })
                             cursor = cursor.plusDays(1)
                             inZeile++
                         }
@@ -179,6 +183,8 @@ fun TagesZelle(
     analyse: com.fabian.sanialarmplaner.logic.TagesAnalyse?,
     modus: Int,
     modifier: Modifier = Modifier,
+    verfuegbare: Int? = null,
+    verfuegbarGesamt: Int = 0,
 ) {
     val bg = when {
         analyse == null -> Color.Transparent
@@ -186,6 +192,17 @@ fun TagesZelle(
             2 -> ConflictRed.copy(alpha = 0.35f)
             1 -> PendingOrange.copy(alpha = 0.35f)
             else -> Color(0xFF34C759).copy(alpha = 0.25f)
+        }
+        modus == 2 -> {
+            // #55: Verfuegbare Personen relativ zur Gruppenhoehe
+            val gesamt = verfuegbarGesamt
+            val ratio = if (gesamt > 0) verfuegbare ?: 0 else 1
+            when {
+                gesamt <= 0 -> Color.Transparent
+                ratio * 2 < gesamt -> ConflictRed.copy(alpha = 0.35f)      // unter 50% verfuegbar
+                ratio * 4 < gesamt * 3 -> PendingOrange.copy(alpha = 0.35f) // unter 75%
+                else -> Color(0xFF34C759).copy(alpha = 0.25f)
+            }
         }
         else -> MaterialTheme.colorScheme.surfaceVariant
     }
@@ -199,7 +216,13 @@ fun TagesZelle(
             "${datum.dayOfMonth}",
             style = MaterialTheme.typography.labelSmall
         )
-        if (analyse != null && analyse.termine.isNotEmpty()) {
+        if (modus == 2 && verfuegbare != null) {
+            Text(
+                "$verfuegbare frei",
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1
+            )
+        } else if (analyse != null && analyse.termine.isNotEmpty()) {
             Text(
                 if (analyse.termine.size == 1) analyse.termine.first().titel.take(8)
                 else "${analyse.termine.size} Term.",

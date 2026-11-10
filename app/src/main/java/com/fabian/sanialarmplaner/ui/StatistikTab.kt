@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.fabian.sanialarmplaner.data.vollerName
 import com.fabian.sanialarmplaner.ui.theme.ActiveSaniBlue
 import com.fabian.sanialarmplaner.ui.theme.ConflictRed
 import com.fabian.sanialarmplaner.ui.theme.PendingOrange
@@ -209,6 +210,9 @@ fun StatistikTab(vm: PlanerViewModel) {
         SaniAufklapp("Historische Schichten verwalten (+ Nachtragen)") {
             HistorieEditor(vm)
         }
+        SaniAufklapp("Einsatzereignisse erfassen (#43: Alarm, Ort, Teilnahme)") {
+            EinsatzErfassung(vm)
+        }
         SaniAufklapp("Gespeicherte Pläne") {
             val plaene = vm.gespeichertePlaene()
             if (plaene.isEmpty()) {
@@ -227,3 +231,69 @@ fun StatistikTab(vm: PlanerViewModel) {
 /** Grau-Farbe fuer Kuchendiagramm (aus Theme). */
 @Composable
 private fun BadgeGrauFarbe() = MaterialTheme.colorScheme.secondary
+
+// ==============================================================================
+// EINSATZERFASSUNG (#43): Alarmereignis mit Ort/Uhrzeit und tatsaechlicher Teilnahme
+// ==============================================================================
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun EinsatzErfassung(vm: PlanerViewModel) {
+    var datum by remember { mutableStateOf(LocalDate.now().toString()) }
+    var uhrzeit by remember { mutableStateOf("") }
+    var ort by remember { mutableStateOf("") }
+    var auswahl by remember { mutableStateOf(setOf<String>()) }
+    val allePersonen: List<String> = vm.state.datei.personen.filter { it.aktiv }.map { it.vollerName() }.sorted()
+
+    Text(
+        "Erfasse echte Alarme: Wer war eingeteilt, wer war tatsächlich da? Grundlage für die Einsatzquote.",
+        style = MaterialTheme.typography.bodySmall
+    )
+    Spacer(Modifier.height(4.dp))
+    OutlinedTextField(datum, { datum = it }, label = { Text("Datum (JJJJ-MM-TT)") },
+        modifier = Modifier.fillMaxWidth(), singleLine = true)
+    OutlinedTextField(uhrzeit, { uhrzeit = it }, label = { Text("Uhrzeit (HH:MM, optional)") },
+        modifier = Modifier.fillMaxWidth(), singleLine = true)
+    OutlinedTextField(ort, { ort = it }, label = { Text("Ort/Raum (optional)") },
+        modifier = Modifier.fillMaxWidth(), singleLine = true)
+    Spacer(Modifier.height(4.dp))
+    Text("Wer war beteiligt (tippen = eingeteilt UND teilgenommen):", style = MaterialTheme.typography.labelSmall)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        allePersonen.forEach { p ->
+            FilterChip(
+                selected = p in auswahl,
+                onClick = { auswahl = if (p in auswahl) auswahl - p else auswahl + p },
+                label = { Text(p.split(" ").first()) }
+            )
+        }
+    }
+    Spacer(Modifier.height(4.dp))
+    Button(
+        onClick = {
+            vm.fuegeEinsatzereignisHinzu(
+                com.fabian.sanialarmplaner.data.Einsatzereignis(
+                    datum = datum, uhrzeit = uhrzeit.trim(), ort = ort.trim(),
+                    eingeteilt = auswahl.toList(), teilgenommen = auswahl.toList(),
+                )
+            )
+            auswahl = emptySet()
+        },
+        enabled = auswahl.isNotEmpty(),
+        modifier = Modifier.fillMaxWidth()
+    ) { Text("Einsatz speichern") }
+
+    val einsaetze = vm.einsatzereignisse()
+    if (einsaetze.isNotEmpty()) {
+        Spacer(Modifier.height(6.dp))
+        Text("${einsaetze.size} Ereignisse:", style = MaterialTheme.typography.labelSmall)
+        einsaetze.take(5).forEach { e ->
+            Row {
+                Text(
+                    "${e.datum}${e.uhrzeit.takeIf { it.isNotBlank() }?.let { " $it" } ?: ""}" +
+                        e.ort.takeIf { it.isNotBlank() }?.let { " · $it" }?.let { it } ?: "",
+                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall
+                )
+                TextButton(onClick = { vm.loescheEinsatzereignis(e) }) { Text("×") }
+            }
+        }
+    }
+}

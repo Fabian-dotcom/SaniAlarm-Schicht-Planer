@@ -1006,6 +1006,27 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
     fun tagesAnalyse(von: LocalDate, bis: LocalDate, klassenFilter: Set<String> = emptySet()) =
         KalenderAnalyse.betroffeneProTag(state.datei, von, bis, klassenFilter)
 
+    /**
+     * Verfuegbare Personen pro Datum (#55): aktive Personen minus Schultermin-
+     * Betroffene minus Krankmeldungen — Basis fuer die Verfuegbarkeits-Heatmap.
+     */
+    fun verfuegbarkeitProTag(von: LocalDate, bis: LocalDate): Map<LocalDate, Int> {
+        val aktiv = state.datei.personen.filter { it.aktiv }.map { it.vollerName() }.toSet()
+        val analyse = KalenderAnalyse.betroffeneProTag(state.datei, von, bis)
+        val resultat = mutableMapOf<LocalDate, Int>()
+        var d = von
+        while (!d.isAfter(bis)) {
+            val bloqueert = analyse[d]?.betroffenePersonen?.toSet() ?: emptySet()
+            val krankHeute = state.kranke.count { k ->
+                // ganztags krank zaehlt an jedem Wochentag
+                k in aktiv
+            }
+            resultat[d] = (aktiv.size - bloqueert.size - krankHeute).coerceAtLeast(0)
+            d = d.plusDays(1)
+        }
+        return resultat
+    }
+
     fun klassenListe(): List<String> =
         state.datei.personen.map { it.klasse }.filter { it.isNotBlank() }.distinct().sorted()
 
