@@ -88,6 +88,15 @@ interface KlassenArbeitLookup {
     fun betroffeneVortag(tagIdx: Int): Set<String> = emptySet()
 }
 
+/**
+ * Team-Sperrdaten-Lookup (#Wunsch: Gruppen an bestimmten Daten nicht eintragen).
+ * tagIdx -> Teams, die an diesem Datum NICHT eingesetzt werden koennen.
+ */
+interface TeamSperrdatenLookup {
+    fun gesperrteTeams(tagIdx: Int): Set<String>
+    fun grundFuer(tagIdx: Int): String
+}
+
 fun istGueltig(
     dienstplan: Map<Schluessel, Dienst>,
     woche: Int,
@@ -98,6 +107,7 @@ fun istGueltig(
     abwesenheiten: Abwesenheiten,
     entspannung: Int = 0,
     klassenArbeiten: KlassenArbeitLookup? = null,
+    teamSperrdaten: TeamSperrdatenLookup? = null,
 ): List<RegelVerstoß> {
     val verstoesse = mutableListOf<RegelVerstoß>()
 
@@ -119,6 +129,18 @@ fun istGueltig(
             verstoesse += RegelVerstoß(RegelId.ABWESENHEIT, "$p ist am $tagName (Woche $woche) abwesend")
         }
     }
+    // REGEL 1c2 (#Wunsch): Team-Sperrdaten — Gruppe an einem konkreten Datum
+    // nicht eintragen (z.B. Klassenfahrt, Ausflug). Harte Regel, nie lockerbar.
+    if (teamSperrdaten != null) {
+        val gesperrtHier = teamSperrdaten.gesperrteTeams(tagIndex(woche, tagName))
+        if (gewaehltesPaar in gesperrtHier) {
+            verstoesse += RegelVerstoß(
+                RegelId.SPERRTAG,
+                "${gewaehltesPaar} ist am ${tagName} (Woche $woche) gesperrt: ${teamSperrdaten.grundFuer(tagIndex(woche, tagName)).ifBlank { "besonderer Tag" }}"
+            )
+        }
+    }
+
     // REGEL 1d (#53): Klassenarbeits-Modi
     // "streng" = harte Sperre (nie lockerbar), "gewichtet" = weicher Faktor
     // (kann in Entspannungsstufe 1+ zuruecktreten), "aus" = keine Wirkung.
@@ -378,6 +400,7 @@ fun generiereDienstplan(
     vorbelegungen: Map<Schluessel, Dienst> = emptyMap(),
     gesperrteTage: Set<Int> = emptySet(),
     klassenArbeiten: KlassenArbeitLookup? = null,
+    teamSperrdaten: TeamSperrdatenLookup? = null,
     fortschritt: ((String) -> Unit)? = null,
 ): PlanErgebnis {
     if (aufstellung.aktivePaare.isEmpty() && gesperrteTage.size < 10) return PlanErgebnis()
@@ -394,7 +417,7 @@ fun generiereDienstplan(
         d.paar in aufstellung.aktivePaare &&
             (d.springer == null || d.springer in aufstellung.aktiveSpringer)
     }
-    return generiereMitVorbelegungen(config, aufstellung, abwesenheiten, nutzbare, gesperrteTage, klassenArbeiten, fortschritt)
+    return generiereMitVorbelegungen(config, aufstellung, abwesenheiten, nutzbare, gesperrteTage, klassenArbeiten, teamSperrdaten, fortschritt)
 }
 
 private fun generiereMitVorbelegungen(
@@ -404,6 +427,7 @@ private fun generiereMitVorbelegungen(
     vorbelegungen: Map<Schluessel, Dienst>,
     gesperrteTage: Set<Int>,
     klassenArbeiten: KlassenArbeitLookup?,
+    teamSperrdaten: TeamSperrdatenLookup?,
     fortschritt: ((String) -> Unit)? = null,
 ): PlanErgebnis {
 
@@ -421,7 +445,7 @@ private fun generiereMitVorbelegungen(
             val seed = if (config.seed != 0L) config.seed + entspannung * 1_000_000L + versuch
                        else Random(System.nanoTime()).nextLong()
             val plan = versucheMitSeed(
-                seed, config, aufstellung, abwesenheiten, vorbelegungen, entspannung, gesperrteTage, klassenArbeiten
+                seed, config, aufstellung, abwesenheiten, vorbelegungen, entspannung, gesperrteTage, klassenArbeiten, teamSperrdaten
             )
             if (plan != null) {
                 val entschaerft = when (entspannung) {
@@ -475,9 +499,12 @@ private fun pruefeSchnell(
     letzerFreitagPaar: String?,
     springerLetzterFreitag: String?,
     klassenArbeiten: KlassenArbeitLookup?,
+    teamSperrdaten: TeamSperrdatenLookup?,
 ): Boolean {
     // Regel 1: Team-Sperrtage + Personen-Sperrtage + Abwesenheiten
     if (config.regeln.teamSperrtageAktiv && tag in config.teamSperrtage[paar].orEmpty()) return false
+    // Team-Sperrdaten (bestimmtes Datum, Gruppe nicht verfuegbar)
+    if (teamSperrdaten != null && paar in teamSperrdaten.gesperrteTeams(tagIndex(woche, tag))) return false
     val beteiligte = config.teams[paar].orEmpty() + listOfNotNull(springer)
     for (p in beteiligte) {
         if (tag in config.personSperrtage[p].orEmpty()) return false
@@ -542,6 +569,7 @@ private fun versucheMitSeed(
     entspannung: Int,
     gesperrteTage: Set<Int>,
     klassenArbeiten: KlassenArbeitLookup?,
+    teamSperrdaten: TeamSperrdatenLookup?,
 ): Map<Schluessel, Dienst>? {
     val alleTage = Wochen.alle.flatMap { w -> Wochentage.dienst.map { Schluessel(w, it) } }
     val dienstplan = mutableMapOf<Schluessel, Dienst>()
@@ -562,6 +590,15 @@ private fun versucheMitSeed(
     var einsaetzeProBlock = mutableMapOf<String, Int>()   // Key: "paar|1", "springer|2"
     var springerLetzterFreitag: String? = null
     var letzerFreitagPaar: String? = null   // paar des Freitags der vorigen Woche
+
+    /** Freitags-Tracker neu berechnen (Backtracking-korrekt). */
+    fun aktualisiereFreitagTracker() {
+        val letzterFreitag = alleTage
+            .filter { it.second == "Freitag" && it in dienstplan }
+            .maxByOrNull { it.first }
+        letzerFreitagPaar = letzterFreitag?.let { dienstplan[it]?.paar }
+        springerLetzterFreitag = letzterFreitag?.let { dienstplan[it]?.springer }
+    }
 
     fun registriere(woche: Int, tag: String, d: Dienst) {
         proWochePaar.getOrPut(woche) { mutableSetOf() }.add(d.paar)
@@ -596,6 +633,7 @@ private fun versucheMitSeed(
     }
 
     for ((key, d) in dienstplan) registriere(key.first, key.second, d)
+    aktualisiereFreitagTracker()
 
     // wie im Python-Original: vollständige rekursive Suche über alle Optionen
     // mit Zeitdeckel: nach 'budgetMs' Millisekunden wird dieser Versuch abgebrochen
@@ -606,9 +644,10 @@ private fun versucheMitSeed(
         while (i < alleTage.size && (alleTage[i] in dienstplan || tagIdx(alleTage[i]) in gesperrteTage)) i++
 
         // Fairness-Checks an den Blockgrenzen: gezaehlt wird ueber den PLAN
-        // (inkl. Vorbelegungen), nicht ueber den Suchindex — sonst werden mit
-        // Vorbelegungen die Checks uebersprungen (war NPE-Regression im Test).
-        if (config.regeln.blockFairness) {
+        // (inkl. Vorbelegungen), nicht ueber den Suchindex. NUR in Stufe 0 —
+        // in gelockerten Stufen ist die Fairness bewusst relaxiert (sonst
+        // blockierte der Check jede Loesung, wenn Slots knapp sind).
+        if (entspannung == 0 && config.regeln.blockFairness) {
             val block1Voll = Wochen.alle.take(2).all { w ->
                 Wochentage.dienst.all { t ->
                     val idx = tagIndex(w, t)
@@ -618,17 +657,25 @@ private fun versucheMitSeed(
             if (block1Voll && !pruefeBlockFairness(dienstplan, listOf(1, 2), aufstellung)) return null
         }
         if (i == alleTage.size) {
-            return if (!config.regeln.blockFairness || pruefeBlockFairness(dienstplan, listOf(3, 4), aufstellung)) dienstplan else null
+            val ok = entspannung > 0 || !config.regeln.blockFairness ||
+                pruefeBlockFairness(dienstplan, listOf(3, 4), aufstellung)
+            return if (ok) dienstplan else null
         }
 
         val (woche, tagName) = alleTage[i]
         val block = if (woche <= 2) "1" else "2"
         // Fairness-Heuristik: Teams OHNE Einsatz im aktuellen Block zuerst probieren
-        // (das "Gebot": jeder kommt mindestens 1x pro 2-Wochen-Block dran)
-        val (maechtigste, rest) = aufstellung.aktivePaare.keys.partition { p ->
+        // (das "Gebot": jeder kommt mindestens 1x pro 2-Wochen-Block dran).
+        // Teams, die an diesem Tag gesperrt sind (Team-Sperrdaten), werden
+        // hinten einsortiert — sie koennen eh nicht gewaehlt werden.
+        val gesperrtHier = teamSperrdaten?.gesperrteTeams(tagIndex(woche, tagName)) ?: emptySet()
+        val (frei, blockiert) = aufstellung.aktivePaare.keys.partition { p ->
+            p !in gesperrtHier
+        }
+        val (maechtigste, rest) = frei.partition { p ->
             (einsaetzeProBlock["p|$p|$block"] ?: 0) == 0
         }
-        val paareSortiert = (rest + maechtigste).shuffled(random)
+        val paareSortiert = (rest + maechtigste + blockiert).shuffled(random)
         val optionen = buildList {
             for (p in paareSortiert) {
                 for (s in aufstellung.aktiveSpringer.shuffled(random) + listOf<String?>(null)) {
@@ -643,16 +690,18 @@ private fun versucheMitSeed(
                 woche, tagName, paar, springer, config, abwesenheiten, entspannung,
                 proWochePaar, proWocheSpringer, proTagPaar, proTagSpringer,
                 einsaetzeProPaar, einsaetzeProSpringer, einsaetzeProBlock,
-                letzerFreitagPaar, springerLetzterFreitag, klassenArbeiten
+                letzerFreitagPaar, springerLetzterFreitag, klassenArbeiten, teamSperrdaten
             )
             if (schnellOk) {
                 val d = Dienst(paar, springer)
                 dienstplan[alleTage[i]] = d
                 registriere(woche, tagName, d)
+                if (tagName == "Freitag") aktualisiereFreitagTracker()
                 val ergebnis = suchen(i + 1, random, tiefe + 1)
                 if (ergebnis != null) return ergebnis
                 dienstplan.remove(alleTage[i])
                 entferne(woche, tagName, d)
+                if (tagName == "Freitag") aktualisiereFreitagTracker()
             }
         }
         return null

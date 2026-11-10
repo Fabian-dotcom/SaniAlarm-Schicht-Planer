@@ -31,6 +31,7 @@ data class PlanEintrag(
     val mitglieder: List<String>,
     val vorbelegt: Boolean,
     val gesperrt: Boolean = false,     // kein Dienst an diesem Tag (z.B. schulfrei)
+    val sperrGrund: String? = null,    // Begruendung fuer gesperrten Tag (#39)
     val vertretungHinweis: String? = null,
 ) {
     /** Convenience: true wenn dieser Slot einen Dienst hat. */
@@ -475,7 +476,7 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
     private fun geplanteEinsaetze(person: String): Int =
         state.plan.count { person in it.mitglieder }
 
-    fun toggleGesperrterTag(woche: Int, tag: String) {
+    fun toggleGesperrterTag(woche: Int, tag: String, grund: String = "") {
         val idx = tagIndex(woche, tag)
         val neue = state.gesperrteTage.toMutableSet()
         if (!neue.add(idx)) neue.remove(idx)
@@ -483,10 +484,21 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
         val neueVorbelegungen = if (idx in neue)
             state.vorbelegungen.filterKeys { it.first != woche || it.second != tag }
         else state.vorbelegungen
-        state = state.copy(gesperrteTage = neue, vorbelegungen = neueVorbelegungen)
+        // Begruendung mitschreiben (#39) — beim Entfernen loeschen
+        val neueGruende = state.datei.einstellung.gesperrteTageGruende.toMutableMap()
+        if (idx in neue) { if (grund.isNotBlank()) neueGruende[idx] = grund else neueGruende.remove(idx) }
+        else neueGruende.remove(idx)
+        state = state.copy(
+            gesperrteTage = neue,
+            vorbelegungen = neueVorbelegungen,
+            datei = state.datei.copy(einstellung = state.datei.einstellung.copy(gesperrteTageGruende = neueGruende)),
+        )
         // Persistieren in .saniteam (#39)
-        updateDatei { d -> d.copy(einstellung = d.einstellung.copy(gesperrteTage = neue)) }
+        saniteamSpeicherOrt?.speichern(state.datei)
     }
+
+    fun grundFuerGesperrtenTag(woche: Int, tag: String): String =
+        state.datei.einstellung.gesperrteTageGruende[tagIndex(woche, tag)] ?: ""
 
     fun fuegeVorbelegungHinzu(woche: Int, tag: String, paar: String, springer: String?) {
         if (state.vorbelegungen.containsKey(woche to tag)) return
@@ -598,9 +610,10 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
             val aufstellung = verarbeiteAufstellung(state.config, state.kranke, state.abwesenheiten)
             // #53: Klassenarbeiten als harte Regel in die Planung
             val kaLookup = klassenArbeitLookup()
+            val tsLookup = teamSperrdatenLookup()
             val res = generiereDienstplan(
                 state.config, aufstellung, state.abwesenheiten,
-                effektiveVorbelegungen, state.gesperrteTage, kaLookup
+                effektiveVorbelegungen, state.gesperrteTage, kaLookup, tsLookup
             ) { schritt ->
                 fortlaufend = schritt
             }
@@ -638,8 +651,9 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
             Wochentage.dienst.map { t ->
                 val idx = tagIndex(w, t)
                 if (idx in state.gesperrteTage) {
-                    // Gesperrter Tag (z.B. schulfrei): kein Dienst
-                    PlanEintrag(w, t, null, null, emptyList(), false, gesperrt = true)
+                    // Gesperrter Tag (z.B. schulfrei): kein Dienst, mit Begruendung
+                    PlanEintrag(w, t, null, null, emptyList(), false, gesperrt = true,
+                        sperrGrund = state.datei.einstellung.gesperrteTageGruende[idx])
                 } else {
                     val d = plan[w to t]
                     if (d == null) {
@@ -701,6 +715,34 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
     }
 
     fun gespeichertePlaene(): List<GespeicherterPlan> = state.datei.gespeichertePlaene.sortedByDescending { it.monat }
+
+    // ------------------------------------------------------------------
+    // EINSATZEREIGNISSE (#43): Alarme mit Ort/Uhrzeit und tatsaechlicher Teilnahme
+    // ------------------------------------------------------------------
+
+    fun einsatzereignisse(): List<com.fabian.sanialarmplaner.data.Einsatzereignis> =
+        state.datei.einsatzereignisse.sortedByDescending { it.datum }
+
+    fun fuegeEinsatzereignisHinzu(e: com.fabian.sanialarmplaner.data.Einsatzereignis) {
+        updateDatei { d -> d.copy(einsatzereignisse = d.einsatzereignisse + e) }
+    }
+
+    fun loescheEinsatzereignis(e: com.fabian.sanialarmplaner.data.Einsatzereignis) {
+        updateDatei { d -> d.copy(einsatzereignisse = d.einsatzereignisse - e) }
+    }
+
+    /** Einsatzquote pro Person: tatsaechliche Teilnahmen / dokumentierte Einteilungen. */
+    fun einsatzQuoten(): Map<String, Double> {
+        val dokumentiert = mutableMapOf<String, Int>()
+        val teilgenommen = mutableMapOf<String, Int>()
+        for (e in state.datei.einsatzereignisse) {
+            for (p in e.eingeteilt) dokumentiert[p] = (dokumentiert[p] ?: 0) + 1
+            for (p in e.teilgenommen) teilgenommen[p] = (teilgenommen[p] ?: 0) + 1
+        }
+        return dokumentiert.mapValues { (p, d) ->
+            if (d > 0) (teilgenommen[p] ?: 0).toDouble() / d else 0.0
+        }
+    }
 
     private var offeneTageGruende: List<String> = emptyList()
 
@@ -781,7 +823,11 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
             for (t in Wochentage.dienst) {
                 val e = state.plan.firstOrNull { it.woche == w && it.tag == t } ?: continue
                 val marker = buildString {
-                    if (e.gesperrt) append(" [KEIN DIENST]")
+                    if (e.gesperrt) {
+                        append(" [KEIN DIENST]")
+                        val grund = grundFuerGesperrtenTag(e.woche, e.tag)
+                        if (grund.isNotBlank()) append(" ($grund)")
+                    }
                     if (e.vorbelegt) append(" [VORBELEGT]")
                     e.vertretungHinweis?.let { append(" [VERTRETUNG: $it]") }
                 }
@@ -883,6 +929,54 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
         }
     }
 
+    /**
+     * Lookup: Tag-Index -> Teams, die an diesem Datum gesperrt sind (#Wunsch:
+     * bestimmte Gruppen an besonderen Tagen nicht eintragen). Betroffene Teams
+     * via Teamnamen ODER ueber betroffene Personen im Team.
+     */
+    private fun teamSperrdatenLookup(): TeamSperrdatenLookup {
+        val planTage = Wochen.alle.flatMap { w ->
+            Wochentage.dienst.mapNotNull { t ->
+                val d = datumFuer(w, t) ?: return@mapNotNull null
+                tagIndex(w, t) to d.toString()
+            }
+        }.toMap()   // tagIdx -> ISO-Datum
+        val personen = state.datei.personen
+
+        val teamsPerTag = mutableMapOf<Int, MutableSet<String>>()
+        val gruendePerTag = mutableMapOf<Int, String>()
+        for (s in state.datei.teamSperrdaten) {
+            val tagIdx = planTage.entries.firstOrNull { it.value == s.datum }?.key ?: continue
+            val set = teamsPerTag.getOrPut(tagIdx) { mutableSetOf() }
+            set.addAll(s.teamNamen)
+            // Teams, in denen eine betroffene Person sitzt
+            for (p in s.personNamen) {
+                state.config.teams.forEach { (team, mitglieder) ->
+                    if (p in mitglieder) set.add(team)
+                }
+            }
+            if (s.grund.isNotBlank()) {
+                gruendePerTag[tagIdx] = listOfNotNull(
+                    gruendePerTag[tagIdx], s.grund
+                ).filter { it.isNotBlank() }.joinToString("; ")
+            }
+        }
+        return object : TeamSperrdatenLookup {
+            override fun gesperrteTeams(tagIdx: Int): Set<String> = teamsPerTag[tagIdx].orEmpty()
+            override fun grundFuer(tagIdx: Int): String = gruendePerTag[tagIdx] ?: ""
+        }
+    }
+
+    fun fuegeTeamSperrdatumHinzu(t: com.fabian.sanialarmplaner.data.TeamSperrdatum) {
+        updateDatei { d -> d.copy(teamSperrdaten = d.teamSperrdaten + t) }
+    }
+
+    fun loescheTeamSperrdatum(t: com.fabian.sanialarmplaner.data.TeamSperrdatum) {
+        updateDatei { d -> d.copy(teamSperrdaten = d.teamSperrdaten - t) }
+    }
+
+    fun teamSperrdatenListe() = state.datei.teamSperrdaten.sortedBy { it.datum }
+
     /** Kalenderwoche (1-4) des Planungsmonats, in der ein Datum liegt; null wenn ausserhalb. */
     private fun kalenderWocheFuer(datum: LocalDate): Int? {
         for (w in 1..4) {
@@ -976,7 +1070,9 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
             }
             name to tage
         }
-        return com.fabian.sanialarmplaner.logic.KennzahlenEngine.berechne(state.datei, planMitglieder, verfuegbar)
+        return com.fabian.sanialarmplaner.logic.KennzahlenEngine.berechne(
+            state.datei, planMitglieder, verfuegbar, einsatzQuoten()
+        )
     }
 
     fun statistik(): List<PersonenStatistik> {

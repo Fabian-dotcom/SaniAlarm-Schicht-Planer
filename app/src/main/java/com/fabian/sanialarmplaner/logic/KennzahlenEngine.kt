@@ -70,6 +70,7 @@ object KennzahlenEngine {
         datei: SaniteamDatei,
         planMitglieder: Map<String, List<String>>,   // Datum -> Personen (aktueller Plan + Historie)
         verfuegbareTageProPerson: Map<String, Int>,  // Person -> Anzahl moeglicher Diensttage
+        einsatzQuoten: Map<String, Double> = emptyMap(),   // Person -> E_i/D_i (#43)
     ): List<PersonKennzahlen> {
         val aktiv = datei.personen.filter { it.aktiv }
         val heute = LocalDate.now()
@@ -187,7 +188,8 @@ object KennzahlenEngine {
                 fairnessAbweichung = fairness,
                 wochentagBalance = wtBalance,
                 springerZusatzbelastung = zusatzbelastung[name] ?: 0,
-                einsatzquote = null,   // wird gesetzt, wenn Teilnahme-Daten erfasst werden (#43-Erweiterung)
+                // #43: Einsatzquote aus dokumentierten Einsaetzen, null ohne Daten
+                einsatzquote = einsatzQuoten[name],
                 teamFlexibilitaet = flexibilitaet[name] ?: 0,
                 qualifikationsBeitrag = quali[name] ?: 0,
                 planungsOptionen = (verfuegbareTageProPerson[name] ?: 0),

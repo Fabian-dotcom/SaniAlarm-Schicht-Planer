@@ -455,6 +455,10 @@ fun KalenderZelle(e: PlanEintrag, modifier: Modifier = Modifier) {
             if (e.gesperrt) {
                 Text("—", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                e.sperrGrund?.takeIf { it.isNotBlank() }?.let {
+                    Text(it.take(10), style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 return@Column
             }
             // Namen (nur Vornamen, damit es in die schmale Zelle passt)
@@ -821,6 +825,12 @@ fun VorbelegungTab(vm: PlanerViewModel) {
         }
 
         Spacer(Modifier.height(16.dp))
+        // ---------------- Team-Sperrdaten (Gruppe an besonderen Tag) -------
+        SaniAufklapp("Team an bestimmtem Tag sperren (z.B. Ausflug, Klassenfahrt)") {
+            TeamSperrdatumEditor(vm)
+        }
+
+        Spacer(Modifier.height(16.dp))
         // ---------------- Gesperrte Tage (kein Dienst, z.B. schulfrei) ------
         Text("Kein Dienst (z.B. schulfrei)", style = MaterialTheme.typography.titleMedium)
         Text(
@@ -938,6 +948,99 @@ fun LabeledDropdown(label: String, options: List<String>, selected: String, modi
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { opt ->
                 DropdownMenuItem(text = { Text(opt) }, onClick = { onSelected(opt); expanded = false })
+            }
+        }
+    }
+}
+// ==============================================================================
+// TEAM-SPERRDATEN (#Wunsch): bestimmte Gruppen an besonderen Tagen nicht eintragen
+// ==============================================================================
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun TeamSperrdatumEditor(vm: PlanerViewModel) {
+    var datum by remember { mutableStateOf(LocalDate.now()) }
+    var zeigeDatePicker by remember { mutableStateOf(false) }
+    var grund by remember { mutableStateOf("") }
+    var ausgewaehlteTeams by remember { mutableStateOf(setOf<String>()) }
+
+    if (zeigeDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = datum.toEpochDay() * 24 * 60 * 60 * 1000
+        )
+        DatePickerDialog(
+            onDismissRequest = { zeigeDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { ms ->
+                        datum = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.of("UTC")).toLocalDate()
+                    }
+                    zeigeDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { zeigeDatePicker = false }) { Text("Abbrechen") } }
+        ) { DatePicker(state = datePickerState) }
+    }
+
+    if (vm.state.config.teams.isEmpty()) {
+        Text("Keine Teams vorhanden.", style = MaterialTheme.typography.bodySmall)
+        return
+    }
+
+    Text("An welchem Tag?:", style = MaterialTheme.typography.bodySmall)
+    OutlinedButton(onClick = { zeigeDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
+        Text("Datum: ${datum.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))}")
+    }
+    Spacer(Modifier.height(6.dp))
+    Text("Welche Teams sind an diesem Tag verhindert?:", style = MaterialTheme.typography.bodySmall)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        vm.state.config.teams.keys.forEach { team ->
+            FilterChip(
+                selected = team in ausgewaehlteTeams,
+                onClick = {
+                    ausgewaehlteTeams =
+                        if (team in ausgewaehlteTeams) ausgewaehlteTeams - team
+                        else ausgewaehlteTeams + team
+                },
+                label = { Text(team) }
+            )
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    OutlinedTextField(grund, { grund = it }, label = { Text("Grund (z.B. Klassenfahrt)") },
+        modifier = Modifier.fillMaxWidth(), singleLine = true)
+    Spacer(Modifier.height(6.dp))
+    Button(
+        onClick = {
+            vm.fuegeTeamSperrdatumHinzu(
+                com.fabian.sanialarmplaner.data.TeamSperrdatum(
+                    datum = datum.toString(),
+                    teamNamen = ausgewaehlteTeams.toList(),
+                    grund = grund.trim(),
+                )
+            )
+            ausgewaehlteTeams = emptySet()
+            grund = ""
+        },
+        enabled = ausgewaehlteTeams.isNotEmpty(),
+        modifier = Modifier.fillMaxWidth()
+    ) { Text("Sperre speichern") }
+
+    val liste = vm.teamSperrdatenListe()
+    if (liste.isNotEmpty()) {
+        Spacer(Modifier.height(8.dp))
+        liste.forEach { t ->
+            Card(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("${t.datum}: ${t.teamNamen.joinToString()}")
+                        if (t.grund.isNotBlank()) {
+                            Text(t.grund, style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    TextButton(onClick = { vm.loescheTeamSperrdatum(t) }) { Text("×") }
+                }
             }
         }
     }

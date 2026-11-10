@@ -29,6 +29,10 @@ data class SaniteamDatei(
     val wiederkehrend: List<WiederkehrendeVorbelegung> = emptyList(),
     /** Dauerhaft gespeicherte Pläne (Historie außerhalb des RAMs) */
     val gespeichertePlaene: List<GespeicherterPlan> = emptyList(),
+    /** Team-Sperrtage an konkreten Daten (#Wunsch: Gruppen an besonderen Tagen) */
+    val teamSperrdaten: List<TeamSperrdatum> = emptyList(),
+    /** Alarm-/Einsatzereignisse (#43) */
+    val einsatzereignisse: List<Einsatzereignis> = emptyList(),
 )
 
 @Serializable
@@ -60,6 +64,8 @@ data class PlanEinstellung(
     val personMaxEinsaetze: Map<String, Int> = emptyMap(),
     /** Tage ohne jeden Dienst (schulfrei etc.), Indizes 0..19 — persistiert (#39/#58) */
     val gesperrteTage: Set<Int> = emptySet(),
+    /** Begruendung pro gesperrtem Tag (Index -> Grund) — #39 */
+    val gesperrteTageGruende: Map<Int, String> = emptyMap(),
     /** Regel-Schalter */
     val regeln: RegelKonfig = RegelKonfig(),
     val modus: String = "normal",
@@ -83,6 +89,32 @@ data class GespeicherterPlan(
     val monat: String,            // "2026-11"
     /** (woche,tag) -> (paar, springer); gesperrte Tage fehlen einfach */
     val eintraege: Map<String, List<String>>,  // Key "w|tag" -> [paar, springer?]
+)
+
+/**
+ * Team-Sperrtag an einem KONKRETEN Datum (#Wunsch: "bestimmte Gruppen nicht an
+ * besonderen Tagen eintragen") — z.B. Ausflug, Klassenfahrt, Gremium.
+ * Betroffene Teams durch Namen (z.B. "Camilo & Jonatan") ODER Personen.
+ */
+@Serializable
+data class TeamSperrdatum(
+    val datum: String,            // "2026-11-18"
+    val teamNamen: List<String> = emptyList(),   // betroffene Teams
+    val personNamen: List<String> = emptyList(), // betroffene Personen (beliebig im Team)
+    val grund: String = "",
+)
+
+/**
+ * Alarm-/Einsatzereignis (#43): einzelner Vorfall mit Uhrzeit, Ort und
+ * tatsaechlicher Teilnahme — Grundlage fuer Einsatzquoten.
+ */
+@Serializable
+data class Einsatzereignis(
+    val datum: String,            // "2026-11-05"
+    val uhrzeit: String = "",     // "14:30"
+    val ort: String = "",         // Raum/Ort
+    val eingeteilt: List<String> = emptyList(),
+    val teilgenommen: List<String> = emptyList(),
 )
 
 // ==============================================================================
