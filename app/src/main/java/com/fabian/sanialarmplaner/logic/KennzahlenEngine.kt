@@ -30,6 +30,8 @@ data class PersonKennzahlen(
     // 10: Datenqualitaet
     val datenVertrauen: String,         // "hoch"|"mittel"|"niedrig"
     val datenHinweis: String,
+    /** #44 Verlauf: Wochenfenster (4/12/26) -> Belastungsindex in diesem Fenster */
+    val verlaufWerte: Map<Int, Double> = emptyMap(),
 )
 
 object KennzahlenEngine {
@@ -155,6 +157,28 @@ object KennzahlenEngine {
             }
         }
 
+        // #44 Verlauf: Belastungsindex je Wochenfenster (4 / 12 / 26 Wochen)
+        // Index = eigene Dienste im Fenster / erwartete Dienste im Fenster
+        val verlaufWerteProPerson = mutableMapOf<String, Map<Int, Double>>()
+        for (p in aktiv) {
+            val name = p.vollerName()
+            val werte = mutableMapOf<Int, Double>()
+            for (w in listOf(4, 12, 26)) {
+                val grenze = heute.minusWeeks(w.toLong())
+                val nDienste = planMitglieder.count { (datumStr, personen) ->
+                    val d = try { LocalDate.parse(datumStr) } catch (_: Exception) { return@count false }
+                    !d.isBefore(grenze) && d.isBefore(heute) && name in personen
+                }
+                val dienstTage = planMitglieder.keys.count { ds ->
+                    val d = try { LocalDate.parse(ds) } catch (_: Exception) { return@count false }
+                    !d.isBefore(grenze) && d.isBefore(heute)
+                }
+                val erwartet = if (nPersonen > 0) dienstTage.toDouble() / nPersonen else 0.0
+                werte[w] = if (erwartet > EPS) nDienste / erwartet else 0.0
+            }
+            verlaufWerteProPerson[name] = werte
+        }
+
         return aktiv.map { p ->
             val name = p.vollerName()
             val a = (einsaetzeProPerson[name] ?: 0).toDouble()
@@ -195,8 +219,36 @@ object KennzahlenEngine {
                 planungsOptionen = (verfuegbareTageProPerson[name] ?: 0),
                 datenVertrauen = vertrauen.first,
                 datenHinweis = vertrauen.second,
+                verlaufWerte = verlaufWerteProPerson[name].orEmpty(),
             )
         }.sortedByDescending { it.belastungsIndex }
+    }
+
+    /**
+     * Verlaufskurven (#44): Belastungsindex im Zeitfenster 4/12/26 Wochen.
+     * Liefert pro Person den Index, der nur Dienste im jeweiligen Fenster zaehlt.
+     */
+    fun verlauf(
+        datei: SaniteamDatei,
+        einsaetzeProPersonUndDatum: Map<String, List<String>>,   // Person -> ISO-Daten
+        activePersonen: List<String>,
+    ): Map<Int, Map<String, Double>> {
+        val heute = LocalDate.now()
+        val result = mutableMapOf<Int, Map<String, Double>>()
+        for (wochen in listOf(4, 12, 26)) {
+            val grenze = heute.minusWeeks(wochen.toLong())
+            val einsaetzeImFenster = activePersonen.associateWith { name ->
+                einsaetzeProPersonUndDatum[name].orEmpty().count { d ->
+                    try { LocalDate.parse(d).isAfter(grenze) } catch (_: Exception) { false }
+                }.toDouble()
+            }
+            val summe = einsaetzeImFenster.values.sum()
+            val mittel = summe / activePersonen.size.coerceAtLeast(1)
+            result[wochen] = activePersonen.associateWith { p ->
+                if (mittel > 0) (einsaetzeImFenster[p] ?: 0.0) / mittel else 0.0
+            }
+        }
+        return result
     }
 
     /** Planungsrisiko pro Tag (#44): R_d = 1 / (1 + N_d) */

@@ -173,11 +173,11 @@ fun PersonenTab(vm: PlanerViewModel) {
             }
         }
         if (sortierte.isEmpty() && state.datei.personen.isNotEmpty()) {
-            Text("Keine Treffer fÃ¼r '$suche'.", style = MaterialTheme.typography.bodySmall)
+            Text("Keine Treffer für '$suche'.", style = MaterialTheme.typography.bodySmall)
         }
 
         if (gridAnsicht) {
-            // Team-Zuordnung fÃ¼r Kacheln (Name -> Teamnamen)
+            // Team-Zuordnung für Kacheln (Name -> Teamnamen)
             val personZuTeams = state.config.teams.entries
                 .flatMap { (team, mitglieder) -> mitglieder.map { it to team } }
                 .groupBy({ it.first }, { it.second })
@@ -197,7 +197,7 @@ fun PersonenTab(vm: PlanerViewModel) {
                     bereitsGezeigt += p.vollerName(); bereitsGezeigt += partner.vollerName()
                 }
             }
-            // alle Ã¼brig gebliebenen ans Ende
+            // alle übrig gebliebenen ans Ende
             zeilen.addAll(alleinige.filter { it.vollerName() !in bereitsGezeigt }.map { listOf(it) })
 
             zeilen.forEach { paarzeile ->
@@ -407,7 +407,7 @@ fun PersonDialog(vm: PlanerViewModel, bestaehend: Person?, onSchliessen: () -> U
                             d.copy(personen = d.personen.filterNot { it.vollerName() == bestaehend.vollerName() })
                         }
                         onSchliessen()
-                    }) { Text("LÃ¶schen", color = MaterialTheme.colorScheme.error) }
+                    }) { Text("Löschen", color = MaterialTheme.colorScheme.error) }
                 }
                 TextButton(onClick = onSchliessen) { Text("Abbrechen") }
             }
@@ -487,7 +487,7 @@ fun HistorieEditor(vm: PlanerViewModel) {
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(10.dp)) {
-            Text("Schicht nachtragen (fÃ¼r Statistik):", style = MaterialTheme.typography.bodySmall)
+            Text("Schicht nachtragen (für Statistik):", style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(datum, { datum = it }, label = { Text("Datum (JJJJ-MM-TT)") }, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(4.dp))
             // FlowRow: Chips brechen um, alle Namen sind erreichbar
@@ -634,7 +634,7 @@ fun EinstellungenTab(vm: PlanerViewModel) {
         SpringerEditor(vm)
 
         Spacer(Modifier.height(16.dp))
-        Text("PrÃ¤ferenzen (Springer â†’ bevorzugte Teams)", style = MaterialTheme.typography.titleMedium)
+        Text("Präferenzen (Springer â†’ bevorzugte Teams)", style = MaterialTheme.typography.titleMedium)
         if (cfg.praeferenzen.isEmpty()) Text("Keine hinterlegt.", style = MaterialTheme.typography.bodySmall)
         cfg.praeferenzen.forEach { (springer, teams) ->
             Text("â€¢ $springer: ${teams.joinToString()}")
@@ -659,8 +659,8 @@ fun EinstellungenTab(vm: PlanerViewModel) {
         if (bestaetigeAufstieg) {
             AlertDialog(
                 onDismissRequest = { bestaetigeAufstieg = false },
-                title = { Text("Aufstieg bestÃ¤tigen") },
-                text = { Text("Alle ${vm.state.datei.personen.size} Personen steigen eine Stufe auf? Dies kann nicht rÃ¼ckgÃ¤ngig gemacht werden.") },
+                title = { Text("Aufstieg bestätigen") },
+                text = { Text("Alle ${vm.state.datei.personen.size} Personen steigen eine Stufe auf? Dies kann nicht rückgängig gemacht werden.") },
                 confirmButton = {
                     TextButton(onClick = {
                         vm.alleAufsteigen()
@@ -747,7 +747,7 @@ fun SaniteamExportImport(vm: PlanerViewModel) {
                 Text("Datei speichernâ€¦")
             }
             OutlinedButton(onClick = { oeffnenLauncher.launch(arrayOf("*/*")) }) {
-                Text("Datei Ã¶ffnenâ€¦")
+                Text("Datei öffnenâ€¦")
             }
         }
         meldung?.let {
@@ -757,7 +757,7 @@ fun SaniteamExportImport(vm: PlanerViewModel) {
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            "Alternativ: Eine .saniteam-Datei aus dem Messenger direkt mit dieser App Ã¶ffnen â€“ der Vorschau-Dialog erscheint automatisch.",
+            "Alternativ: Eine .saniteam-Datei aus dem Messenger direkt mit dieser App öffnen â€“ der Vorschau-Dialog erscheint automatisch.",
             style = MaterialTheme.typography.bodySmall
         )
     }
@@ -854,27 +854,38 @@ fun PersonBerichtDialog(k: com.fabian.sanialarmplaner.logic.PersonKennzahlen, on
                 Modifier.verticalScroll(rememberScrollState()).heightIn(max = 480.dp)
             ) {
                 BerichtZeile("Belastungsindex", "%.2f".format(k.belastungsIndex),
-                    "Deine Dienste im VerhÃ¤ltnis zum Durchschnitt der Gruppe. 1,0 = genau durchschnittlich, 1,2 = 20 % mehr als der Durchschnitt. Hilft, Ãœber-/Unterbelastung fair zu erkennen.")
+                    "Deine Dienste im Verhältnis zum Durchschnitt der Gruppe. 1,0 = genau durchschnittlich, 1,2 = 20 % mehr als der Durchschnitt. Hilft, Ãœber-/Unterbelastung fair zu erkennen.")
                 BerichtZeile("Kurzzeitbelastung", "%.2f".format(k.kurzzeitBelastung),
-                    "Wie viele deiner Dienste in jÃ¼ngerer Zeit lagen. Dienste der letzten Wochen zÃ¤hlen voll, Ã¤ltere verlieren an Gewicht (Halbwertszeit 28 Tage). Zeigt ungÃ¼nstige HÃ¤ufungen, ohne die Vergangenheit zu vergessen.")
+                    "Wie viele deiner Dienste in jüngerer Zeit lagen. Dienste der letzten Wochen zählen voll, ältere verlieren an Gewicht (Halbwertszeit 28 Tage). Zeigt ungünstige Häufungen, ohne die Vergangenheit zu vergessen.")
                 BerichtZeile("Fairness-Abweichung", "%+.0f%%".format(k.fairnessAbweichung * 100),
-                    "Vergleicht deine tatsÃ¤chlichen Dienste damit, wie viele angesichts deiner VerfÃ¼gbarkeit zu erwarten wÃ¤ren. +20 % heiÃŸt: Du hattest mehr Dienste als bei deiner Situation Ã¼blich. Die Folgeplanung entlastet dich dann stÃ¤rker.")
+                    "Vergleicht deine tatsächlichen Dienste damit, wie viele angesichts deiner Verfügbarkeit zu erwarten wären. +20 % heiÃŸt: Du hattest mehr Dienste als bei deiner Situation üblich. Die Folgeplanung entlastet dich dann stärker.")
                 BerichtZeile("Wochentags-Balance", "%.2f".format(k.wochentagBalance),
-                    "Wie gleichmÃ¤ÃŸig deine Dienste Ã¼ber Montags bis Freitage verteilt sind. 0 = sehr gleichmÃ¤ÃŸig; hÃ¶here Werte bedeuten HÃ¤ufung an bestimmten Tagen.")
+                    "Wie gleichmäÃŸig deine Dienste über Montags bis Freitage verteilt sind. 0 = sehr gleichmäÃŸig; höhere Werte bedeuten Häufung an bestimmten Tagen.")
                 BerichtZeile("Springer-Zusatzbelastung", "${k.springerZusatzbelastung}Ã—",
-                    "Wie oft du bei Teams aushalfst, die nicht zu deinen bevorzugten Teams gehÃ¶ren. Zeigt, wie oft du auÃŸerhalb deiner Vorlieben eingesprungen bist.")
+                    "Wie oft du bei Teams aushalfst, die nicht zu deinen bevorzugten Teams gehören. Zeigt, wie oft du auÃŸerhalb deiner Vorlieben eingesprungen bist.")
                 if (k.einsatzquote != null) {
                     BerichtZeile("Einsatzquote", "%.0f%%".format(k.einsatzquote * 100),
-                        "Wie oft du bei deinen eingeteilten Diensten tatsÃ¤chlich anwesend warst. Erfordert dokumentierte Teilnahmen (noch nicht erfasst).")
+                        "Wie oft du bei deinen eingeteilten Diensten tatsächlich anwesend warst. Erfordert dokumentierte Teilnahmen (noch nicht erfasst).")
                 }
-                BerichtZeile("Team-FlexibilitÃ¤t", "${k.teamFlexibilitaet}",
-                    "In wie vielen Teams du regelkonform sitzen kÃ¶nntest (eigenes Team + Teams, in denen die Ausbildungs-Regel intact bliebe). Hoher Wert = du bist als Vertretung vielseitig nutzbar.")
+                BerichtZeile("Team-Flexibilität", "${k.teamFlexibilitaet}",
+                    "In wie vielen Teams du regelkonform sitzen könntest (eigenes Team + Teams, in denen die Ausbildungs-Regel intact bliebe). Hoher Wert = du bist als Vertretung vielseitig nutzbar.")
                 BerichtZeile("Qualifikationsbeitrag", "${k.qualifikationsBeitrag}",
-                    "Wie viele Teams ohne dich keine ausgebildete Person mehr hÃ¤tten. Ein MaÃŸ fÃ¼r Planungssicherheit â€” nicht dafÃ¼r, dass du Ã¶fter drankommst.")
+                    "Wie viele Teams ohne dich keine ausgebildete Person mehr hätten. Ein MaÃŸ für Planungssicherheit â€” nicht dafür, dass du öfter drankommst.")
                 BerichtZeile("Planungsoptionen", "${k.planungsOptionen}",
-                    "Anzahl der Tage, an denen du theoretisch dienen kÃ¶nntest (nach Abzug von Krank-, Sperr- und Abwesenheitstagen). Wenige Optionen = du bist seltener verfÃ¼gbar.")
+                    "Anzahl der Tage, an denen du theoretisch dienen könntest (nach Abzug von Krank-, Sperr- und Abwesenheitstagen). Wenige Optionen = du bist seltener verfügbar.")
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                Text("DatenqualitÃ¤t", style = MaterialTheme.typography.titleSmall)
+                Text("Entwicklung (4 / 12 / 26 Wochen)", style = MaterialTheme.typography.titleSmall)
+                listOf(4, 12, 26).forEach { w ->
+                    val index = k.verlaufWerte[w]
+                    if (index != null) {
+                        Text(
+                            "$w Wochen: Index %.2f".format(index),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Text("Datenqualität", style = MaterialTheme.typography.titleSmall)
                 Text(k.datenHinweis, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
@@ -921,7 +932,7 @@ fun GruppenEditor(vm: PlanerViewModel) {
     val aktiv = remember(aktualisieren) { vm.aktiveGruppe() }
 
     Text(
-        "Falls die AG in mehrere unabhÃ¤ngige Gruppen zerfÃ¤llt (z.B. nach Wochentag), kann jede Gruppe ihre eigene .saniteam-Datei haben.",
+        "Falls die AG in mehrere unabhängige Gruppen zerfällt (z.B. nach Wochentag), kann jede Gruppe ihre eigene .saniteam-Datei haben.",
         style = MaterialTheme.typography.bodySmall
     )
     Spacer(Modifier.height(6.dp))
@@ -931,7 +942,7 @@ fun GruppenEditor(vm: PlanerViewModel) {
             Text(g, Modifier.weight(1f))
             if (g != "Standard") {
                 TextButton(onClick = {
-                    meldung = if (vm.loescheGruppe(g)) "Gruppe '$g' gelÃ¶scht." else "LÃ¶schen fehlgeschlagen."
+                    meldung = if (vm.loescheGruppe(g)) "Gruppe '$g' gelöscht." else "Löschen fehlgeschlagen."
                     aktualisieren++
                 }) { Text("Ã—", color = MaterialTheme.colorScheme.error) }
             }
@@ -947,7 +958,7 @@ fun GruppenEditor(vm: PlanerViewModel) {
             singleLine = true
         )
         Button(onClick = {
-            meldung = if (vm.neueGruppe(neueName)) "Gruppe '${neueName.trim()}' angelegt." else "Name ungÃ¼ltig oder bereits vorhanden."
+            meldung = if (vm.neueGruppe(neueName)) "Gruppe '${neueName.trim()}' angelegt." else "Name ungültig oder bereits vorhanden."
             if (meldung!!.startsWith("Gruppe")) neueName = ""
             aktualisieren++
         }, enabled = neueName.isNotBlank()) { Text("Anlegen") }
@@ -969,8 +980,8 @@ fun BackupEditor(vm: PlanerViewModel) {
     val backups = remember(aktualisieren) { vm.backupListe() }
 
     Text(
-        "Es wird automatisch 1Ã— tÃ¤glich ein Backup im App-Speicher angelegt (max. 10). " +
-            "Falls die Daten mal beschÃ¤digt sind, kannst du hier wiederherstellen.",
+        "Es wird automatisch 1Ã— täglich ein Backup im App-Speicher angelegt (max. 10). " +
+            "Falls die Daten mal beschädigt sind, kannst du hier wiederherstellen.",
         style = MaterialTheme.typography.bodySmall
     )
     if (backups.isEmpty()) {
@@ -1045,7 +1056,7 @@ fun SpringerEditor(vm: PlanerViewModel) {
         Text("Keine Teams vorhanden.", style = MaterialTheme.typography.bodySmall)
         return
     }
-    Text("Priorisierte Teams fÃ¼r $springerWaehl:", style = MaterialTheme.typography.bodySmall)
+    Text("Priorisierte Teams für $springerWaehl:", style = MaterialTheme.typography.bodySmall)
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -1069,7 +1080,7 @@ fun SpringerEditor(vm: PlanerViewModel) {
         }
     }
     Text(
-        "Leer = Springer darf Ã¼berall. Mit Auswahl darf der Springer nur bei den markierten Teams eingesetzt werden.",
+        "Leer = Springer darf überall. Mit Auswahl darf der Springer nur bei den markierten Teams eingesetzt werden.",
         style = MaterialTheme.typography.bodySmall
     )
 }
@@ -1113,14 +1124,14 @@ fun SchulterminFuerPersonDialog(vm: PlanerViewModel, person: Person, onSchliesse
 
     AlertDialog(
         onDismissRequest = onSchliessen,
-        title = { Text("Schultermin fÃ¼r ${person.vollerName()}") },
+        title = { Text("Schultermin für ${person.vollerName()}") },
         text = {
             Column {
                 OutlinedButton(onClick = { zeigeDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
                     Text("Datum: ${datum.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))}")
                 }
                 Spacer(Modifier.height(8.dp))
-                Text("Gilt fÃ¼r:", style = MaterialTheme.typography.bodySmall)
+                Text("Gilt für:", style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     FilterChip(
                         selected = geltung == "person",

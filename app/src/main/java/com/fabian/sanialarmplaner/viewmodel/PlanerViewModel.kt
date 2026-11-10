@@ -611,9 +611,11 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
             // #53: Klassenarbeiten als harte Regel in die Planung
             val kaLookup = klassenArbeitLookup()
             val tsLookup = teamSperrdatenLookup()
+            // #28: Ferien/Feiertage automatisch als gesperrte Tage
+            val gesperrtMitFerien = state.gesperrteTage + ferienFeiertagTage()
             val res = generiereDienstplan(
                 state.config, aufstellung, state.abwesenheiten,
-                effektiveVorbelegungen, state.gesperrteTage, kaLookup, tsLookup
+                effektiveVorbelegungen, gesperrtMitFerien, kaLookup, tsLookup
             ) { schritt ->
                 fortlaufend = schritt
             }
@@ -647,6 +649,7 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
             }
         }
 
+        val ferien = ferienFeiertagTage()
         val eintraege = Wochen.alle.flatMap { w ->
             Wochentage.dienst.map { t ->
                 val idx = tagIndex(w, t)
@@ -654,6 +657,12 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
                     // Gesperrter Tag (z.B. schulfrei): kein Dienst, mit Begruendung
                     PlanEintrag(w, t, null, null, emptyList(), false, gesperrt = true,
                         sperrGrund = state.datei.einstellung.gesperrteTageGruende[idx])
+                } else if (idx in ferien) {
+                    // #28: Ferien/Feiertag automatisch dienstfrei
+                    val typ = if (state.datei.schultermine.any {
+                            it.typ == "Ferien" && it.datum == (datumFuer(w, t)?.toString() ?: "")
+                        }) "Ferien" else "Feiertag"
+                    PlanEintrag(w, t, null, null, emptyList(), false, gesperrt = true, sperrGrund = typ)
                 } else {
                     val d = plan[w to t]
                     if (d == null) {
@@ -903,6 +912,23 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
     }
 
     /** Lookup: Tag-Index -> Personen, die an dem Tag eine Klassenarbeit haben (#53). */
+    /**
+     * #28: Ferien/Feiertage werden AUTOMATISCH als gesperrte Tage in die Planung
+     * uebernommen — jeder Schultermin vom Typ "Ferien" oder "Feiertag" sperrt
+     * seinen Planungstag komplett.
+     */
+    private fun ferienFeiertagTage(): Set<Int> {
+        val tage = mutableSetOf<Int>()
+        for (t in state.datei.schultermine) {
+            if (t.typ != "Ferien" && t.typ != "Feiertag") continue
+            val datum = try { LocalDate.parse(t.datum) } catch (_: Exception) { continue }
+            val woche = kalenderWocheFuer(datum) ?: continue
+            val tag = Wochentage.dienst.firstOrNull { datumFuer(woche, it) == datum } ?: continue
+            tage.add(tagIndex(woche, tag))
+        }
+        return tage
+    }
+
     private fun klassenArbeitLookup(): KlassenArbeitLookup {
         val map = mutableMapOf<Int, MutableSet<String>>()
         val personen = state.datei.personen
@@ -1093,6 +1119,23 @@ class PlanerViewModel(private val store: ConfigStore, private val saniteamStore:
         }
         return com.fabian.sanialarmplaner.logic.KennzahlenEngine.berechne(
             state.datei, planMitglieder, verfuegbar, einsatzQuoten()
+        )
+    }
+
+    /** Verlauf 4/12/26 Wochen (#44): Belastungsindex je Zeitfenster. */
+    fun kennzahlenVerlauf(): Map<Int, Map<String, Double>> {
+        val proPerson = mutableMapOf<String, MutableList<String>>()
+        for (h in state.datei.historie) {
+            for (p in h.personNamen) proPerson.getOrPut(p) { mutableListOf() }.add(h.datum)
+        }
+        for (e in state.plan) {
+            if (!e.hatDienst) continue
+            val datum = datumFuer(e.woche, e.tag)?.toString() ?: continue
+            for (m in e.mitglieder) proPerson.getOrPut(m) { mutableListOf() }.add(datum)
+        }
+        val aktiv = state.datei.personen.filter { it.aktiv }.map { it.vollerName() }
+        return com.fabian.sanialarmplaner.logic.KennzahlenEngine.verlauf(
+            state.datei, proPerson, aktiv
         )
     }
 
