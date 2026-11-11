@@ -29,7 +29,7 @@ form.addEventListener("submit", async (event) => {
       nachname: formData.get("familyName"),
       klasse: formData.get("group"),
       telefon: formData.get("phone"),
-      email: formData.get("email"),
+      email: "",
     });
     const responseCode = await encodeResponse(person, invitationKey);
     await QRCode.toCanvas(canvas, responseCode, {
@@ -38,6 +38,8 @@ form.addEventListener("submit", async (event) => {
       width: 280,
       color: { dark: "#102c40", light: "#ffffff" },
     });
+    const respTextEl = document.querySelector("#responseText");
+    if (respTextEl) respTextEl.value = responseCode;
     result.hidden = false;
     form.hidden = true;
   } catch (cause) {
@@ -47,6 +49,21 @@ form.addEventListener("submit", async (event) => {
     error.hidden = false;
   }
 });
+
+const copyBtn = document.querySelector("#copyResponse");
+if (copyBtn) {
+  copyBtn.addEventListener("click", async () => {
+    const respTextEl = document.querySelector("#responseText");
+    if (!respTextEl || !respTextEl.value) return;
+    try {
+      await navigator.clipboard.writeText(respTextEl.value);
+      copyBtn.textContent = "Kopiert!";
+      setTimeout(() => { copyBtn.textContent = "Text kopieren"; }, 2000);
+    } catch (e) {
+      respTextEl.select();
+    }
+  });
+}
 
 document.querySelector("#reset").addEventListener("click", () => {
   form.reset();

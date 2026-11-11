@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SaniAlarm – Schichtplaner (Desktop)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" aria-label="Hauptnavigation">
+    <div class="brand"><span class="logo"><i data-lucide="siren"></i></span><span class="brand-t">SaniAlarm<small>Schichtplaner</small></span></div>
+    <nav class="nav" id="nav">
+      <button data-tab="home" aria-current="page"><i data-lucide="layout-dashboard"></i><span>Dashboard</span></button>
+      <button data-tab="members"><i data-lucide="users"></i><span>Kartei</span></button>
+      <button data-tab="log"><i data-lucide="clipboard-list"></i><span>Einsatz-Log</span></button>
+      <button data-tab="stats"><i data-lucide="chart-no-axes-column"></i><span>Statistik</span></button>
+      <button data-tab="settings"><i data-lucide="settings"></i><span>Einstellungen</span></button>
+    </nav>
+    <div class="side-foot">
+      <div class="db-pill"><i data-lucide="database"></i><span id="dbState">Lokal gespeichert</span></div>
+      <div class="me" id="meBox"></div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <!-- DASHBOARD -->
+    <section class="screen active" id="s-home" aria-label="Dashboard">
+      <header class="page-head">
+        <div><h1 id="hello">Hallo</h1><p class="sub" id="todayLine"></p></div>
+        <div class="head-actions">
+          <button class="btn danger" id="panicBtn" title="Sofortige Prüfung auf spontane Krankmeldungen und AUSB-Ausfall"><i data-lucide="siren"></i><span>Morgen-Notfall</span></button>
+          <button class="btn ghost" id="blockBtn"><i data-lucide="calendar-x"></i>Sperrtag</button>
+          <button class="btn ghost" id="exportBtn"><i data-lucide="share-2"></i>Teilen</button>
+          <button class="btn primary" id="generate"><i data-lucide="sparkles"></i><span>Plan generieren</span></button>
+        </div>
+      </header>
+      <div id="panicBanner"></div>
+      <div class="stats" id="stats"></div>
+      <div class="dash">
+        <div class="card cal-card">
+          <div class="cal-head">
+            <h2 id="calTitle"></h2>
+            <div class="cal-nav">
+              <button class="btn small ghost" id="todayBtn">Heute</button>
+              <button class="icon-btn" id="prevM" aria-label="Vorheriger Monat"><i data-lucide="chevron-left"></i></button>
+              <button class="icon-btn" id="nextM" aria-label="Nächster Monat"><i data-lucide="chevron-right"></i></button>
+            </div>
+          </div>
+          <div class="weekdays" aria-hidden="true"><div>Mo</div><div>Di</div><div>Mi</div><div>Do</div><div>Fr</div></div>
+          <div class="days" id="days"></div>
+          <div class="legend">
+            <span><i class="dot" style="background:var(--green)"></i>Besetzt</span>
+            <span><i class="dot" style="background:var(--orange)"></i>Warnung (SPR/REG/x/y)</span>
+            <span><i class="dot" style="background:var(--red)"></i>Konflikt / offen</span>
+            <span><i class="dot" style="background:var(--purple)"></i>Sperrtag</span>
+          </div>
+        </div>
+        <div class="side-col">
+          <button class="next" id="nextShift"></button>
+          <div class="card detail" id="dayDetail" aria-live="polite"></div>
+        </div>
+        <div class="card"><div class="card-head"><h2>Sperrtage &amp; Klausuren</h2><button class="btn small ghost" data-new-block=""><i data-lucide="plus"></i>Neu</button></div><div id="blockList"></div></div>
+        <div class="card"><div class="card-head"><h2 id="loadTitle">Geplante Dienste</h2><span class="muted-s">pro Person im Monat</span></div><div id="loadBars"></div></div>
+      </div>
+    </section>
+
+    <!-- KARTEI -->
+    <section class="screen" id="s-members" aria-label="Personen-Kartei">
+      <header class="page-head">
+        <div><h1>Kartei <span class="count" id="memCount"></span></h1><p class="sub">Mitglieder, Teams und Verfügbarkeit verwalten</p></div>
+        <div class="head-actions">
+          <button class="btn ghost" id="memQrInvite"><i data-lucide="qr-code"></i><span>QR-Code Einladung</span></button>
+          <button class="btn primary" id="addMember"><i data-lucide="user-plus"></i><span>Mitglied hinzufügen</span></button>
+        </div>
+      </header>
+      <div class="toolbar">
+        <div class="search"><i data-lucide="search"></i><label class="sr-only" for="q">Suche</label><input id="q" type="search" placeholder="Name oder Klasse suchen" autocomplete="off"></div>
+        <div class="select"><label class="sr-only" for="stufe">Stufe</label><select id="stufe"><option value="">Alle Stufen</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option></select><i data-lucide="chevron-down"></i></div>
+        <button class="fchip" aria-pressed="false" data-filter="ausb">Ausgebildet</button>
+        <button class="fchip" aria-pressed="false" data-filter="springer">Springer</button>
+        <button class="fchip" aria-pressed="false" data-filter="noteam">Ohne Team</button>
+        <button class="fchip" aria-pressed="false" data-filter="off">Abwesend</button>
+        <span class="muted-s" id="resultInfo" style="margin-left:auto"></span>
+      </div>
+      <div class="members-grid">
+        <div class="card table-card"><div class="table-wrap"><table class="tbl" id="memTable"></table></div></div>
+        <div class="card"><div class="card-head"><h2>Teams</h2><span class="muted-s" id="teamCount"></span></div><div id="teamPanel"></div></div>
+      </div>
+    </section>
+
+    <!-- EINSATZ-LOG -->
+    <section class="screen" id="s-log" aria-label="Einsatz-Log">
+      <header class="page-head"><div><h1>Einsatz-Log</h1><p class="sub">Echte Alarme erfassen – Soll gegen Ist</p></div></header>
+      <div class="log-grid">
+        <div class="card">
+          <div class="date-row">
+            <button class="icon-btn" id="logPrev" aria-label="Vorheriger Tag"><i data-lucide="chevron-left"></i></button>
+            <div class="dc"><span class="muted-s">Alarm vom</span><b id="logDate"></b></div>
+            <button class="icon-btn" id="logNext" aria-label="Nächster Tag"><i data-lucide="chevron-right"></i></button>
+          </div>
+          <div class="form-row">
+            <label>Uhrzeit<input class="inp" type="time" id="logTime"></label>
+            <label>Ortstyp
+              <select class="inp" id="logPlaceType">
+                <option value="special">Spezialbereich (Sporthalle, Hof ...)</option>
+                <option value="room">Klassenraum (A-/B-/C-123)</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-row" id="placeSpecialRow">
+            <label>Spezialort
+              <select class="inp" id="logPlaceSpecial">
+                <option>Sporthalle</option>
+                <option>Schulhof</option>
+                <option>Mensa</option>
+                <option>Sanitätsraum B014</option>
+                <option>Sekretariat / Verwaltung</option>
+                <option>Pausenhalle / Foyer</option>
+                <option>Bibliothek</option>
+                <option>Außengelände / Sportplatz</option>
+                <option value="custom">Sonstiger Ort (Freitext) ...</option>
+              </select>
+            </label>
+            <label id="placeCustomWrap" hidden>Freitext Ort
+              <input class="inp" id="logPlaceCustom" placeholder="z. B. Fahrradkeller, Parkplatz" autocomplete="off">
+            </label>
+          </div>
+          <div class="place-room-box" id="placeRoomRow" hidden>
+            <div class="room-inputs">
+              <label>Gebäude
+                <select class="inp" id="logBuilding">
+                  <option value="A">Gebäude A</option>
+                  <option value="B" selected>Gebäude B</option>
+                  <option value="C">Gebäude C</option>
+                </select>
+              </label>
+              <label>Etage
+                <select class="inp" id="logFloor">
+                  <option value="0">0 (EG / Erdgeschoss)</option>
+                  <option value="1" selected>1 (1. Obergeschoss)</option>
+                  <option value="2">2 (2. Obergeschoss)</option>
+                  <option value="3">3 (3. Obergeschoss)</option>
+                </select>
+              </label>
+              <label>Raumnummer
+                <input class="inp" type="number" id="logRoomNr" min="1" max="99" value="14" placeholder="z. B. 14">
+              </label>
+            </div>
+            <div class="room-preview">
+              <span class="preview-badge" id="roomPreview">B-114</span>
+              <small id="roomExplanation">Gebäudeteil B · 1. Etage · Raum 14</small>
+            </div>
+          </div>
+          <span class="form-label">Art des Einsatzes</span>
+          <div class="chips" id="logTypes" role="group" aria-label="Art des Einsatzes"></div>
+          
+          <!-- Erweiterte Protokoll-Checklisten -->
+          <div class="protocol-box">
+            <span class="form-label" style="margin-bottom:6px">Notfall-Checkliste &amp; Weiterleitung</span>
+            <div class="check-grid">
+              <label class="c-box"><input type="checkbox" id="logCall112"><span><i data-lucide="phone-call"></i>112 gerufen</span></label>
+              <label class="c-box"><input type="checkbox" id="logSekretariat"><span><i data-lucide="bell"></i>Sekretariat informiert</span></label>
+              <label class="c-box"><input type="checkbox" id="logRtwGate"><span><i data-lucide="navigation"></i>RTW-Einweisung Schultor</span></label>
+              <label class="c-box"><input type="checkbox" id="logGuv"><span><i data-lucide="file-check-2"></i>GUV-Unfallbericht erforderlich</span></label>
+            </div>
+          </div>
+
+          <!-- Materialverbrauch / Lagerbestand -->
+          <div class="inventory-box">
+            <div class="inv-head"><span class="form-label">Materialverbrauch bei diesem Einsatz</span><button class="btn small ghost" type="button" id="openInvBtn"><i data-lucide="boxes"></i>Lagerbestand</button></div>
+            <div class="inv-counter-grid" id="logInvCounters"></div>
+          </div>
+
+          <label class="form-label" for="logNote">Notiz &amp; Erstversorgung</label>
+          <input class="inp" id="logNote" placeholder="z. B. Kühlpack aufgelegt, Wunde desinfiziert, Eltern informiert" autocomplete="off">
+          <div class="soll-row">
+            <div><span>Soll</span><b id="soll">0</b></div><div><span>Ist</span><b id="ist">0</b></div><div><span>Spontan</span><b id="spont">0</b></div>
+          </div>
+          <div class="card-head" style="margin-top:6px"><h2>Eingeteilte Sanis</h2></div>
+          <div class="list" id="logList"></div>
+          <button class="btn ghost wide" id="addHelper" aria-expanded="false" style="margin-top:8px"><i data-lucide="plus"></i>Spontanen Helfer hinzufügen</button>
+          <div class="picker" id="picker" hidden></div>
+          <button class="btn primary wide" id="saveLog" style="margin-top:14px"><i data-lucide="save"></i>Log speichern &amp; Statistik aktualisieren</button>
+        </div>
+        <div class="card"><div class="card-head"><h2>Letzte Einsätze</h2></div><div class="history" id="history"></div></div>
+      </div>
+    </section>
+
+    <!-- STATISTIK -->
+    <section class="screen" id="s-stats" aria-label="Statistik">
+      <header class="page-head">
+        <div><h1>Statistik</h1><p class="sub">Belastung und Fairness der Sanis</p></div>
+        <div class="chips" id="tf" role="group" aria-label="Zeitraum">
+          <button class="fchip" aria-pressed="true" data-tf="total">Alles</button>
+          <button class="fchip" aria-pressed="false" data-tf="year">Dieses Jahr</button>
+          <button class="fchip" aria-pressed="false" data-tf="month">Dieser Monat</button>
+        </div>
+      </header>
+      <div class="stats" id="summary"></div>
+      <div class="stats-grid">
+        <div class="card"><div class="card-head"><h2>Belastungsindex</h2><span class="muted-s">relativ zum Ø (100 %)</span></div><div class="bars" id="bars"></div></div>
+        <div class="side-col">
+          <div class="card"><div class="card-head"><h2>Schicht nachtragen</h2></div>
+            <form class="form" id="addShift">
+              <label>Person<select class="inp" id="shiftPerson"></select></label>
+              <label>Datum<input class="inp" type="date" id="shiftDate" required></label>
+              <button class="btn dark wide" type="submit"><i data-lucide="plus"></i>Schicht nachtragen</button>
+            </form>
+          </div>
+          <div class="card"><div class="card-head"><h2>Prüfungsphase</h2><span class="muted-s">nächste 2 Monate</span></div><div id="exams"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EINSTELLUNGEN -->
+    <section class="screen" id="s-settings" aria-label="Einstellungen">
+      <header class="page-head"><div><h1>Einstellungen</h1><p class="sub">Regeln für den Plan-Generator und Datenverwaltung</p></div></header>
+      <div class="settings-grid">
+        <div class="card" id="rulesCard"></div>
+        <div class="card" id="dataCard"></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<dialog id="modal" aria-labelledby="mTitle"><div class="modal-card" id="modalBody"></div></dialog>
+<div class="toast" id="toast" role="status"><i data-lucide="circle-check"></i><span></span></div>
+
+<script src="js/solver.js"></script>
+<script src="js/core.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>

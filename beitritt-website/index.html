@@ -29,52 +29,49 @@
       <form id="form" class="card form" autocomplete="off" hidden>
         <label>
           Vorname <span aria-hidden="true">*</span>
-          <input name="givenName" required maxlength="80" autocomplete="given-name" />
+          <input name="givenName" required maxlength="80" autocomplete="given-name" placeholder="z. B. Lena" />
         </label>
         <label>
-          Nachname
-          <input name="familyName" maxlength="100" autocomplete="family-name" />
+          Nachname <span class="optional">(optional)</span>
+          <input name="familyName" maxlength="100" autocomplete="family-name" placeholder="z. B. Hoffmann" />
         </label>
         <label>
-          Klasse / Gruppe
-          <input name="group" maxlength="80" autocomplete="off" />
+          Klasse / Stufe <span class="optional">(optional)</span>
+          <input name="group" maxlength="80" autocomplete="off" placeholder="z. B. 10b" />
         </label>
         <label>
-          Telefon <span class="optional">(optional)</span>
-          <input name="phone" type="tel" maxlength="40" autocomplete="tel" />
-        </label>
-        <label>
-          E-Mail <span class="optional">(optional)</span>
-          <input name="email" type="email" maxlength="120" autocomplete="email" />
+          Telefon / WhatsApp <span class="optional">(optional)</span>
+          <input name="phone" type="tel" maxlength="40" autocomplete="tel" placeholder="Für Alarme und AG-Absprachen" />
         </label>
 
         <div class="privacy">
           <h2>Was mit deinen Angaben passiert</h2>
           <p>
-            Die Angaben werden nur auf diesem Gerät verarbeitet und mit dem
-            Schlüssel des Einladungslinks verschlüsselt. Es gibt keinen Versand
-            an einen Server. Zeige den Antwort-QR-Code trotzdem nur der
-            Gruppenleitung.
+            Die Angaben werden nur auf diesem Gerät verarbeitet und verschlüsselt. Es gibt keinen Versand
+            an einen Server. Zeige oder sende den fertigen Code an deine Gruppenleitung.
           </p>
           <label class="consent">
             <input id="consent" type="checkbox" required />
-            Ich habe verstanden, dass der Antwortcode verschlüsselt ist, aber
-            keine Identität bestätigt.
+            Ich bin mit der Aufnahme in das Team des Schulsanitätsdienstes einverstanden.
           </label>
         </div>
 
-        <button id="create" type="submit">Antwort-QR-Code erstellen</button>
+        <button id="create" type="submit">Antwortcode erstellen</button>
         <p id="error" class="error" role="alert" hidden></p>
       </form>
 
       <section id="result" class="card result" aria-live="polite" hidden>
         <h2>Dein Antwortcode</h2>
         <p>
-          Zeige diesen Code der Gruppenleitung. Sie scannt ihn in der SaniAlarm-App
-          und kann deine Angaben vor dem Speichern prüfen.
+          Zeige diesen QR-Code der Gruppenleitung oder kopiere den Antwort-Text unten und sende ihn per Chat (z. B. WhatsApp oder Schul-Messenger).
         </p>
         <canvas id="qr" aria-label="Antwort-QR-Code"></canvas>
-        <button id="reset" class="secondary" type="button">Angaben löschen</button>
+        <div style="margin: 12px 0 16px; width: 100%;">
+          <label for="responseText" style="font-size: 13px; font-weight: 500; display: block; margin-bottom: 4px;">Antwort-Text zum Kopieren &amp; Senden:</label>
+          <textarea id="responseText" readonly rows="3" style="width: 100%; box-sizing: border-box; font-family: monospace; font-size: 12px; padding: 8px; border-radius: 8px; border: 1px solid #ccc; resize: none;"></textarea>
+          <button id="copyResponse" type="button" style="margin-top: 8px; width: 100%;">Text kopieren</button>
+        </div>
+        <button id="reset" class="secondary" type="button">Angaben löschen / Neu</button>
       </section>
 
       <footer>
