@@ -167,6 +167,10 @@ function renderCal() {
     const dt = new Date(y, mo, d); if (!isSchool(dt)) continue;
     if (first) { for (let i = 0; i < (dt.getDay() + 6) % 7; i++) html += `<div class="day empty"></div>`; first = false; }
     const info = evaluate(dt), bl = blocksOn(dt), mode = getDayMode(dt);
+    // Kalender-Marker: wöchentliche Sperren treffen auch Tage außerhalb 'from/to'
+    blocks.forEach(b => {
+      if (b.weekly?.enabled && b.weekly.days?.includes(dt.getDay()) && !bl.includes(b)) bl.push(b);
+    });
     const c = ['day']; if (dt < TODAY) c.push('past'); if (same(dt, TODAY)) c.push('today'); if (same(dt, selected)) c.push('selected');
     let tag = `<span class="tag" style="visibility:hidden">–</span>`;
     let who = 'kein Plan';
@@ -436,13 +440,19 @@ function openBlockModal({ date, personId } = {}) {
     kind: p ? 'person' : (defaultCls ? 'class' : 'person'),
     value: p ? [p.id] : (defaultCls ? defaultCls : (members[0] ? [members[0].id] : [])),
     q: '',
+    weekly: { days: [new Date().getDay() || 1] }, // für Typ „Generell verhindert"
     returnTo: personId
   };
   openModal(`<h3 id="mTitle">Sperrtag eintragen</h3>
-    <p class="lead">Sperrt eine Person oder ihr gesamtes Team an bestimmten Tagen (Verhinderung, Krankheit, Termin). Klausuren &amp; Klassenarbeiten werden separat über „Klausurplan“ gepflegt.</p>
+    <p class="lead">Sperrt eine Person oder ihr gesamtes Team an bestimmten Tagen (Verhinderung, Krankheit, Termin). Für regelmäßig wiederkehrende Ausfälle (z. B. „jeden Montag ganztags nicht da") wähle „Generell verhindert". Klausuren &amp; Klassenarbeiten werden separat gepflegt.</p>
     <span class="form-label">Art</span><div class="chips" role="group" aria-label="Art">${Object.keys(BTYPES).map(t => `<button class="fchip" aria-pressed="${t === draft.type}" data-bt="${t}"><i data-lucide="${BTYPES[t].icon}"></i>${t}</button>`).join('')}</div>
     <label><span class="form-label">Bezeichnung</span><input class="inp" id="bTitle" placeholder="z. B. Arzttermin, Krankheit, Klassenfahrt" autocomplete="off"></label>
-    <div class="form-row">
+    <div id="bWeeklyBox" hidden>
+      <span class="form-label">Wöchentlich verhindert an diesen Tagen</span>
+      <div class="chips" id="bWeeklyDays" role="group" aria-label="Wochentage"></div>
+      <p class="muted-s" style="margin-top:6px">Diese Sperre gilt unbefristet – alle ausgewählten Wochentage werden in der Planung automatisch ignoriert, solange die Sperre besteht.</p>
+    </div>
+    <div class="form-row" id="bDateRow">
       <label><span class="form-label">Von</span><input class="inp" type="date" id="bFrom" value="${draft.from}"></label>
       <label><span class="form-label">Bis</span><input class="inp" type="date" id="bTo" value="${draft.to}"></label>
       <label><span class="form-label">Zeitraum / Schulstunde</span>
@@ -456,7 +466,16 @@ function openBlockModal({ date, personId } = {}) {
     <div class="seg" id="bKind" role="group" aria-label="Gilt für">${[['stufe', 'Stufe'], ['class', 'Klasse'], ['person', 'Personen']].map(([k, l]) => `<button aria-pressed="${k === draft.kind}" data-bk="${k}">${l}</button>`).join('')}</div>
     <div id="bScope" style="margin-top:10px"></div><div class="affect" id="bAffect" aria-live="polite"></div>
     <div class="modal-actions"><button class="btn ghost" id="bCancel">Abbrechen</button><button class="btn primary" id="bSave"><i data-lucide="lock"></i>Sperre speichern</button></div>`);
-  $$('[data-bt]').forEach(b => b.onclick = () => { draft.type = b.dataset.bt; $$('[data-bt]').forEach(x => x.setAttribute('aria-pressed', x === b)); });
+  $$('[data-bt]').forEach(b => b.onclick = () => {
+    draft.type = b.dataset.bt;
+    $$('[data-bt]').forEach(x => x.setAttribute('aria-pressed', x === b));
+    // „Generell verhindert" zeigt Wochentags-Auswahl statt Datumsbereich
+    const weekly = !!BTYPES[draft.type]?.weekly;
+    $('#bWeeklyBox').hidden = !weekly;
+    $('#bDateRow').hidden = weekly;
+    if (weekly) renderWeeklyDays();
+    renderAffect();
+  });
   $('#bTitle').oninput = e => draft.title = e.target.value;
   $('#bFrom').onchange = e => { draft.from = e.target.value; if (draft.to < draft.from) { draft.to = draft.from; $('#bTo').value = draft.to; } renderAffect(); };
   $('#bTo').onchange = e => { draft.to = e.target.value; renderAffect(); };
@@ -487,7 +506,35 @@ function renderPeople() {
   $$('[data-sp]').forEach(b => b.onclick = () => { const id = +b.dataset.sp; draft.value = draft.value.includes(id) ? draft.value.filter(v => v !== id) : [...draft.value, id]; renderPeople(); renderAffect(); });
   icons();
 }
+function renderWeeklyDays() {
+  const el = $('#bWeeklyDays');
+  if (!el) return;
+  const days = ['Mo', 'Di', 'Mi', 'Do', 'Fr']; // Schultage (JS: 1..5)
+  el.innerHTML = days.map((d, i) => {
+    const dow = i + 1, on = draft.weekly.days.includes(dow);
+    return `<button class="fchip" aria-pressed="${on}" data-wd="${dow}">${d}</button>`;
+  }).join('');
+  $$('[data-wd]').forEach(b => b.onclick = () => {
+    const dow = +b.dataset.wd;
+    draft.weekly.days = draft.weekly.days.includes(dow)
+      ? draft.weekly.days.filter(x => x !== dow)
+      : [...draft.weekly.days, dow];
+    b.setAttribute('aria-pressed', draft.weekly.days.includes(dow));
+    renderAffect();
+  });
+}
 function draftConflicts(ids) {
+  // Für wöchentliche Sperren: Konflikte in den nächsten 60 Tagen zählen
+  if (BTYPES[draft.type]?.weekly) {
+    let n = 0;
+    for (let i = 0; i < 60; i++) {
+      const d = addDays(TODAY, i);
+      if (!isSchool(d) || !draft.weekly.days.includes(d.getDay())) continue;
+      const e = plan[iso(d)];
+      if (e && e.team.some(id => ids.includes(id))) n++;
+    }
+    return n;
+  }
   let n = 0, d = parse(draft.from); const end = parse(draft.to);
   while (d <= end) { const e = plan[iso(d)]; if (isSchool(d) && e && e.team.some(id => ids.includes(id))) n++; d = addDays(d, 1); }
   return n;
@@ -500,20 +547,25 @@ function renderAffect() {
 }
 function saveBlock() {
   const ids = affected({ kind: draft.kind, value: draft.value });
-  if (!draft.from) { toast('Bitte ein Datum wählen', true); return; }
+  const isWeekly = !!BTYPES[draft.type]?.weekly;
+  if (!isWeekly && !draft.from) { toast('Bitte ein Datum wählen', true); return; }
+  if (isWeekly && !draft.weekly.days.length) { toast('Bitte mindestens einen Wochentag wählen', true); return; }
   if (!ids.length) { toast('Bitte mindestens eine Person wählen', true); return; }
   const b = {
     id: Date.now(),
     type: draft.type,
-    title: draft.title.trim() || draft.type,
-    from: draft.from,
-    to: draft.to < draft.from ? draft.from : draft.to,
+    title: draft.title.trim() || (isWeekly ? 'Generell verhindert' : draft.type),
+    from: isWeekly ? iso(TODAY) : draft.from,
+    to: isWeekly ? '9999-12-31' : (draft.to < draft.from ? draft.from : draft.to),
     hour: draft.hour ? +draft.hour : null,
     scope: { kind: draft.kind, value: draft.kind === 'person' ? [...draft.value] : draft.value }
   };
+  if (isWeekly) b.weekly = { enabled: true, days: [...draft.weekly.days] };
   const conf = draftConflicts(ids);
   blocks.push(b); save();
-  viewMonth = new Date(parse(b.from).getFullYear(), parse(b.from).getMonth(), 1); selected = parse(b.from);
+  if (!isWeekly) {
+    viewMonth = new Date(parse(b.from).getFullYear(), parse(b.from).getMonth(), 1); selected = parse(b.from);
+  }
   renderAll();
   if (draft.returnTo != null) openMember(draft.returnTo); else closeModal();
   toast(conf ? `Gespeichert · ${conf} Konflikt(e) im Plan` : 'Sperre gespeichert', !!conf);
