@@ -488,11 +488,27 @@ function saveBlock() {
 
 /* ---------- Export ---------- */
 function deliver(blob, filename) {
-  const file = typeof File !== 'undefined' ? new File([blob], filename, { type: blob.type }) : null;
-  if (file && navigator.canShare && navigator.canShare({ files: [file] })) { navigator.share({ files: [file], title: filename }).catch(() => {}); return; }
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  toast(`${filename} erstellt`);
+  try {
+    // Download über versteckten <a download> – zuverlässig in Chrome/Edge/Brave
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 4000);
+    toast(`${filename} erstellt`);
+  } catch (err) {
+    // Fallback: Web Share API, falls verfügbar
+    try {
+      const file = typeof File !== 'undefined' ? new File([blob], filename, { type: blob.type }) : null;
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file], title: filename }).catch(() => {});
+        return;
+      }
+    } catch (e) { /* ignorieren */ }
+    toast('Export fehlgeschlagen: ' + (err?.message || 'unbekannt'), true);
+  }
 }
 function openExport() {
   const y = viewMonth.getFullYear(), mo = viewMonth.getMonth(), rows = planRows(y, mo).filter(r => r.e);
@@ -1005,10 +1021,16 @@ function openQrInviteModal() {
       }
       const first = decoded?.vorname || decoded?.first;
       if (!first) throw new Error('Kein Vorname enthalten');
+      // Klasse zusammensetzen: Bei Stufe 11-13/Q1-Q4 ohne Buchstabe nur die Stufe übernehmen
+      const stufeRaw = String(decoded.stufe || '').trim();
+      const klasseRaw = String(decoded.klasse || '').trim();
+      const isOberstufe = /^(q[1-4]|1[123])$/i.test(stufeRaw);
+      const cls = isOberstufe ? stufeRaw.toLowerCase()
+        : `${stufeRaw}${klasseRaw}`.toLowerCase() || '10a';
       const added = upsertMember({
         first,
         last: decoded.nachname || decoded.last || '-',
-        cls: decoded.klasse || decoded.cls || '10a',
+        cls,
         ausb: !!(decoded.ausb ?? false),
         springer: true,
         available: true
@@ -1028,9 +1050,11 @@ async function decryptBeitrittV2(encoded, secret) {
   if (!encoded || !encoded.startsWith('sani-alarm-beitritt-v2:')) return null;
   const parts = encoded.slice('sani-alarm-beitritt-v2:'.length).split('.');
   if (parts.length !== 2) return null;
-  const rawKey = base64UrlToBytes(secret);
-  if (rawKey.length !== 32) return null;
-  const key = await crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['decrypt']);
+  // Schlüssel wird unabhängig vom Format (Hex/Base64/Text) per SHA-256 auf 32 Byte normiert
+  const material = new TextEncoder().encode(String(secret ?? '').trim());
+  if (!material.length) return null;
+  const digest = await crypto.subtle.digest('SHA-256', material);
+  const key = await crypto.subtle.importKey('raw', digest, 'AES-GCM', false, ['decrypt']);
   const nonce = base64UrlToBytes(parts[0]);
   const cipherText = base64UrlToBytes(parts[1]);
   if (nonce.length !== 12 || cipherText.length < 16) return null;

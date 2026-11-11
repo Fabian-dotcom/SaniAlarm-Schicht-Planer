@@ -7,7 +7,8 @@ function bytesFromBase64Url(value) {
     throw new Error("Ungültiger Beitrittsschlüssel.");
   }
   const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
-  return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+  const bin = atob(base64);
+  return Uint8Array.from(bin, (character) => character.charCodeAt(0));
 }
 
 function base64UrlFromBytes(bytes) {
@@ -21,23 +22,35 @@ function base64UrlFromBytes(bytes) {
     .replace(/=+$/u, "");
 }
 
+/**
+ * Leitet unabhängig vom Format des Einladungsschlüssels (Hex, Base64-URL oder
+ * beliebiger Text) immer deterministisch einen 32-Byte-AES-Schlüssel ab.
+ * So passen App und Website immer zusammen.
+ */
+async function deriveKey(secret) {
+  const material = new TextEncoder().encode(String(secret ?? "").trim());
+  if (!material.length) {
+    throw new Error("Ungültiger Beitrittsschlüssel.");
+  }
+  const digest = await crypto.subtle.digest("SHA-256", material);
+  return crypto.subtle.importKey("raw", digest, "AES-GCM", false, ["encrypt", "decrypt"]);
+}
+
 export function normalizePerson(formData) {
   const person = {
     typ: "person",
-    version: 1,
+    version: 2,
     vorname: String(formData.vorname ?? "").trim(),
     nachname: String(formData.nachname ?? "").trim(),
+    stufe: String(formData.stufe ?? "").trim(),
     klasse: String(formData.klasse ?? "").trim(),
-    telefon: String(formData.telefon ?? "").trim(),
-    email: String(formData.email ?? "").trim(),
   };
 
   if (!person.vorname) {
     throw new Error("Bitte gib mindestens deinen Vornamen an.");
   }
   if (person.vorname.length > 80 || person.nachname.length > 100 ||
-      person.klasse.length > 80 || person.telefon.length > 40 ||
-      person.email.length > 120) {
+      person.stufe.length > 20 || person.klasse.length > 20) {
     throw new Error("Mindestens eine Angabe ist zu lang.");
   }
 
@@ -45,11 +58,7 @@ export function normalizePerson(formData) {
 }
 
 export async function encodeResponse(person, secret) {
-  const rawKey = bytesFromBase64Url(secret);
-  if (rawKey.length !== 32) {
-    throw new Error("Ungültiger Beitrittsschlüssel.");
-  }
-  const key = await crypto.subtle.importKey("raw", rawKey, "AES-GCM", false, ["encrypt"]);
+  const key = await deriveKey(secret);
   const nonce = crypto.getRandomValues(new Uint8Array(12));
   const plainText = new TextEncoder().encode(JSON.stringify(person));
   const cipherText = new Uint8Array(
@@ -76,13 +85,8 @@ export async function decodeResponse(encoded, secret) {
     throw new Error("Ungültiger SaniAlarm-Antwortcode.");
   }
 
-  const rawKey = bytesFromBase64Url(secret);
-  if (rawKey.length !== 32) {
-    throw new Error("Ungültiger Beitrittsschlüssel.");
-  }
-
   try {
-    const key = await crypto.subtle.importKey("raw", rawKey, "AES-GCM", false, ["decrypt"]);
+    const key = await deriveKey(secret);
     const nonce = bytesFromBase64Url(parts[0]);
     const cipherText = bytesFromBase64Url(parts[1]);
     if (nonce.length !== 12 || cipherText.length < 16) {
@@ -94,10 +98,9 @@ export async function decodeResponse(encoded, secret) {
       cipherText,
     );
     const person = JSON.parse(new TextDecoder().decode(plainText));
-    if (person?.typ !== "person" || person.version !== 1 ||
+    if (person?.typ !== "person" ||
         typeof person.vorname !== "string" || !person.vorname.trim() ||
-        typeof person.nachname !== "string" || typeof person.klasse !== "string" ||
-        typeof person.telefon !== "string" || typeof person.email !== "string") {
+        typeof person.nachname !== "string") {
       throw new Error("Der QR-Code enthält kein gültiges Beitrittsformular.");
     }
     return person;

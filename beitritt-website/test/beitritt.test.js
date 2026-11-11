@@ -7,20 +7,33 @@ import {
   RESPONSE_PREFIX,
 } from "../src/beitritt.js";
 
+const SECRET = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; // 43 Zeichen Hex-artig, wie aus der App
+
 test("antwortcode ist UTF-8-sicher und mit dem Einladungsgeheimnis verschlüsselt", async () => {
   const person = normalizePerson({
     vorname: "Élodie",
     nachname: "Müller",
-    klasse: "10b",
-    telefon: "+49 123",
-    email: "elodie@example.org",
+    stufe: "10",
+    klasse: "2",
   });
-  const secret = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-  const code = await encodeResponse(person, secret);
+  const code = await encodeResponse(person, SECRET);
 
   assert.ok(code.startsWith(RESPONSE_PREFIX));
   assert.notEqual(code.includes("Müller"), true);
-  assert.deepEqual(await decodeResponse(code, secret), person);
+  assert.deepEqual(await decodeResponse(code, SECRET), person);
+});
+
+test("kurzer 24-Byte-Hex-Schlüssel aus der App funktioniert (SHA-256-Ableitung)", async () => {
+  const appSecret = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4"; // 48 Hex-Zeichen = 24 Byte
+  const person = normalizePerson({ vorname: "Alex", stufe: "7", klasse: "3" });
+  const code = await encodeResponse(person, appSecret);
+  assert.deepEqual(await decodeResponse(code, appSecret), person);
+});
+
+test("beliebiger Textschlüssel funktioniert ebenfalls", async () => {
+  const person = normalizePerson({ vorname: "Sam", stufe: "Q2" });
+  const code = await encodeResponse(person, "irgend-ein-text-key");
+  assert.deepEqual(await decodeResponse(code, "irgend-ein-text-key"), person);
 });
 
 test("mindestens ein Vorname wird verlangt", () => {
@@ -28,10 +41,9 @@ test("mindestens ein Vorname wird verlangt", () => {
 });
 
 test("unbekannte, manipulierte und falsch verschlüsselte Codes werden abgelehnt", async () => {
-  const secret = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-  await assert.rejects(decodeResponse("https://example.org", secret), /Ungültiger/u);
-  await assert.rejects(decodeResponse(`${RESPONSE_PREFIX}%%%`, secret), /Ungültiger/u);
-  const code = await encodeResponse(normalizePerson({ vorname: "Alex" }), secret);
+  await assert.rejects(decodeResponse("https://example.org", SECRET), /Ungültiger/u);
+  await assert.rejects(decodeResponse(`${RESPONSE_PREFIX}%%%`, SECRET), /Ungültiger/u);
+  const code = await encodeResponse(normalizePerson({ vorname: "Alex" }), SECRET);
   await assert.rejects(
     decodeResponse(code, "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"),
     /passt nicht/u,

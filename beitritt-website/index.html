@@ -6,15 +6,25 @@
     <meta name="referrer" content="no-referrer" />
     <meta
       name="description"
-      content="Offline-Beitrittsformular der SaniAlarm-Gruppe. Deine Angaben werden nicht an einen Server übertragen."
+      content="Offline-Beitrittsformular des SaniAlarm Schichtplaners. Deine Angaben werden nicht an einen Server übertragen."
     />
     <title>Beitritt – SaniAlarm</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
     <main class="page">
       <header class="hero">
-        <p class="eyebrow">SaniAlarm · Beitritt</p>
-        <h1>Schön, dass du dabei sein möchtest.</h1>
+        <div class="brand-row">
+          <span class="logo" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.5-.5 5-2c.71-.71.77-1.9.13-2.54l-.02-.02c-.63-.64-1.83-.58-2.54.13z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg>
+          </span>
+          <div>
+            <p class="eyebrow">SaniAlarm · Schichtplaner</p>
+            <h1>Schön, dass du dabei<br />sein möchtest.</h1>
+          </div>
+        </div>
         <p class="intro">
           Fülle das Formular aus und zeige den fertigen QR-Code anschließend der
           Gruppenleitung.
@@ -23,25 +33,50 @@
 
       <section id="unavailable" class="card notice" hidden>
         <h2>Einladung fehlt</h2>
-        <p>Öffne diese Seite über den Einladungs-QR-Code deiner Gruppenleitung.</p>
+        <p>Öffne diese Seite über den Einladungs-QR-Code oder den Einladungs-Link deiner Leitung.</p>
       </section>
 
       <form id="form" class="card form" autocomplete="off" hidden>
+        <div class="field-row">
+          <label>
+            Vorname <span aria-hidden="true">*</span>
+            <input name="givenName" required maxlength="80" autocomplete="given-name" placeholder="z. B. Lena" />
+          </label>
+          <label>
+            Nachname <span class="optional">(optional)</span>
+            <input name="familyName" maxlength="100" autocomplete="family-name" placeholder="z. B. Hoffmann" />
+          </label>
+        </div>
+
         <label>
-          Vorname <span aria-hidden="true">*</span>
-          <input name="givenName" required maxlength="80" autocomplete="given-name" placeholder="z. B. Lena" />
+          Stufe <span aria-hidden="true">*</span>
+          <span class="select-wrap">
+            <select name="stufe" id="stufeSelect" required>
+              <option value="" disabled selected>Bitte wählen …</option>
+              <option value="7">7</option>
+              <option value="8">8</option>
+              <option value="9">9</option>
+              <option value="10">10</option>
+              <option value="Q1">Q1</option>
+              <option value="Q2">Q2</option>
+              <option value="Q3">Q3</option>
+              <option value="Q4">Q4</option>
+            </select>
+          </span>
         </label>
-        <label>
-          Nachname <span class="optional">(optional)</span>
-          <input name="familyName" maxlength="100" autocomplete="family-name" placeholder="z. B. Hoffmann" />
-        </label>
-        <label>
-          Klasse / Stufe <span class="optional">(optional)</span>
-          <input name="group" maxlength="80" autocomplete="off" placeholder="z. B. 10b" />
-        </label>
-        <label>
-          Telefon / WhatsApp <span class="optional">(optional)</span>
-          <input name="phone" type="tel" maxlength="40" autocomplete="tel" placeholder="Für Alarme und AG-Absprachen" />
+
+        <label id="klasseLabel">
+          Klasse <span aria-hidden="true">*</span>
+          <span class="select-wrap">
+            <select name="klasse" id="klasseSelect" required>
+              <option value="" disabled selected>Bitte wählen …</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+            </select>
+          </span>
+          <small class="hint">Deine Klasse (1–4) innerhalb der Stufe.</small>
         </label>
 
         <div class="privacy">
@@ -63,13 +98,14 @@
       <section id="result" class="card result" aria-live="polite" hidden>
         <h2>Dein Antwortcode</h2>
         <p>
-          Zeige diesen QR-Code der Gruppenleitung oder kopiere den Antwort-Text unten und sende ihn per Chat (z. B. WhatsApp oder Schul-Messenger).
+          Zeige diesen QR-Code der Gruppenleitung oder kopiere den Antwort-Text unten und sende ihn per Chat
+          (z.&nbsp;B. WhatsApp oder Schul-Messenger).
         </p>
         <canvas id="qr" aria-label="Antwort-QR-Code"></canvas>
-        <div style="margin: 12px 0 16px; width: 100%;">
-          <label for="responseText" style="font-size: 13px; font-weight: 500; display: block; margin-bottom: 4px;">Antwort-Text zum Kopieren &amp; Senden:</label>
-          <textarea id="responseText" readonly rows="3" style="width: 100%; box-sizing: border-box; font-family: monospace; font-size: 12px; padding: 8px; border-radius: 8px; border: 1px solid #ccc; resize: none;"></textarea>
-          <button id="copyResponse" type="button" style="margin-top: 8px; width: 100%;">Text kopieren</button>
+        <div class="copy-box">
+          <label for="responseText">Antwort-Text zum Kopieren &amp; Senden:</label>
+          <textarea id="responseText" readonly rows="3"></textarea>
+          <button id="copyResponse" type="button" class="secondary">Text kopieren</button>
         </div>
         <button id="reset" class="secondary" type="button">Angaben löschen / Neu</button>
       </section>
