@@ -50,13 +50,6 @@
   function blockedMap(date, blocks, members) {
     const k = iso(date), map = new Map();
     blocks.forEach(b => {
-      // Wiederkehrende Sperre ("Generell verhindert"): gilt immer an bestimmten Wochentagen,
-      // unabhängig vom Datumsbereich (weeks = true → unbefristet).
-      if (b.weekly && b.weekly.enabled && Array.isArray(b.weekly.days)) {
-        if (!b.weekly.days.includes(date.getDay())) return;
-        blockedIds(b, members).forEach(id => { if (!map.has(id)) map.set(id, b); });
-        return;
-      }
       if (b.from <= k && k <= b.to) blockedIds(b, members).forEach(id => { if (!map.has(id)) map.set(id, b); });
     });
     return map;

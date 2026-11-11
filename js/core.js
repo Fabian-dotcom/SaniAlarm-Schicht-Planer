@@ -19,13 +19,10 @@ const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const WDL = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 const COLORS = ['#6B4FBB', '#D2588F', '#2F8F6B', '#C8741F', '#3B6FD8', '#8A5A44', '#1F8FA0', '#A146C0'];
 const BTYPES = {
-  Verhindert: { tag: 'AB', icon: 'user-x' },
-  Krank: { tag: 'KR', icon: 'thermometer' },
-  Termin: { tag: 'TE', icon: 'calendar-clock' },
+  Klausur: { tag: 'KA', icon: 'graduation-cap' },
   Klassenfahrt: { tag: 'KF', icon: 'bus' },
   Exkursion: { tag: 'EX', icon: 'map' },
-  // Wiederkehrend: Person/Team ist regelmäßig an bestimmten Wochentagen nicht da
-  Generell: { tag: 'GV', icon: 'repeat', weekly: true },
+  Abwesend: { tag: 'AB', icon: 'user-x' },
 };
 const DEFAULT_LOCATION = 'Sanitätsraum B014';
 const DEFAULT_SHIFT_TIME = '09:30 – 09:50';
@@ -227,17 +224,17 @@ function seed() {
     if (len > 1) { let d = parse(from), n = 1; while (n < len) { d = addDays(d, 1); if (isSchool(d)) n++; } to = iso(d); }
     blocks.push({ id: bid++, type, title, from, to, scope: { kind, value } });
   };
-  add(2, 1, 'Termin', 'Termin Stufe 8', 'class', '8b');
-  add(2, 1, 'Verhindert', 'Arzttermin', 'person', [1]);
-  add(4, 1, 'Termin', 'Termin Stufe 10', 'class', '10a');
+  add(2, 1, 'Klausur', 'Biologie', 'class', '8b');
+  add(2, 1, 'Abwesend', 'Arzttermin', 'person', [1]);
+  add(4, 1, 'Klausur', 'Mathematik', 'class', '10a');
   add(9, 1, 'Exkursion', 'Exkursion Stufe 10', 'stufe', 10);
-  add(11, 1, 'Verhindert', 'Termin 9b', 'class', '9b');
-  add(11, 1, 'Krank', 'Krankmeldung 12a', 'class', '12a');
-  add(16, 1, 'Termin', 'Termin Stufe 11', 'class', '11c');
+  add(11, 1, 'Klausur', 'Englisch', 'class', '9b');
+  add(11, 1, 'Klausur', 'Englisch', 'class', '12a');
+  add(16, 1, 'Klausur', 'Deutsch', 'class', '11c');
   add(20, 3, 'Klassenfahrt', 'Klassenfahrt Berlin', 'class', '9a');
-  add(25, 1, 'Termin', 'Termin Stufe 10', 'class', '10b');
-  add(30, 1, 'Krank', 'Krankmeldung 12b', 'class', '12b');
-  add(65, 1, 'Verhindert', 'Verhindert 10c', 'class', '10c');
+  add(25, 1, 'Klausur', 'Physik', 'class', '10b');
+  add(30, 1, 'Klausur', 'Chemie', 'class', '12b');
+  add(65, 1, 'Klausur', 'Geschichte', 'class', '10c');
   einsaetze = [
     { d: iso(addDays(TODAY, -2)), time: '10:05', type: 'Kreislauf', place: 'Mensa', ist: 2, soll: 2 },
     { d: iso(addDays(TODAY, -6)), time: '09:40', type: 'Sportunfall', place: 'Sporthalle', ist: 3, soll: 2 },
@@ -291,13 +288,6 @@ const covers = (b, d) => { const k = iso(d); return b.from <= k && k <= b.to; };
 const blocksOn = d => blocks.filter(b => covers(b, d));
 const blockedMap = d => SS.blockedMap(d, blocks, members);
 const rangeLabel = b => {
-  // Wiederkehrende Sperre: Wochentage anzeigen statt Datumsbereich
-  if (b.weekly?.enabled && Array.isArray(b.weekly.days)) {
-    const names = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
-    const sorted = [...b.weekly.days].sort((a, z) => a - z);
-    const label = sorted.map(d => names[d]).join(', ') || '–';
-    return `jeden ${label} (unbefristet)`;
-  }
   const base = b.from === b.to ? fmtS(parse(b.from)) : `${fmtS(parse(b.from))} – ${fmtS(parse(b.to))}`;
   if (b.hour) {
     const hr = SCHOOL_HOURS.find(h => h.h === +b.hour);
@@ -383,9 +373,6 @@ function upsertMember(data, id) {
   const clean = { first: data.first.trim(), last: data.last.trim(), cls: data.cls.trim().toLowerCase(),
     ausb: !!data.ausb, springer: !!data.springer, available: !!data.available };
   clean.stufe = parseInt(clean.cls) || 0;
-  // Oberstufen-Stufe (Q1-Q4) als 11-14 abbilden
-  const q = clean.cls.match(/^q([1-4])$/);
-  if (q) clean.stufe = 10 + parseInt(q[1]);
   if (id == null) {
     const x = { id: nextMemberId(), total: 0, year: 0, month: 0, team: null, ...clean };
     members.push(x); reindex(); save(); return x;
