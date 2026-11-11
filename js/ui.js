@@ -897,15 +897,87 @@ function renderBars() {
   const sel = $('#shiftPerson'), cur = sel.value;
   sel.innerHTML = members.map(x => `<option value="${x.id}">${esc(fullName(x))} (${esc(x.cls)})</option>`).join('');
   if (cur && m(+cur)) sel.value = cur;
+  // Team-Dropdown befüllen (nur echte Teams mit 2-3 Personen)
+  const tSel = $('#shiftTeam'), tCur = tSel.value;
+  const tl = teamsList();
+  tSel.innerHTML = tl.length ? tl.map(t => `<option value="${t.id}">Team ${t.id} · ${t.ids.slice(0, 3).map(id => m(id)?.first || '?').join(', ')}${t.ids.length > 3 ? ` +${t.ids.length - 3}` : ''}</option>`).join('') : '<option value="">Noch keine Teams</option>';
+  if (tCur && tl.some(t => t.id === +tCur)) tSel.value = tCur;
   if (!$('#shiftDate').value) $('#shiftDate').value = iso(addDays(TODAY, -1));
   icons();
 }
 $$('[data-tf]').forEach(b => b.onclick = () => { tf = b.dataset.tf; $$('[data-tf]').forEach(x => x.setAttribute('aria-pressed', x === b)); renderBars(); });
+
+/* ---------- Schicht nachtragen: Person / Team (+ Abweichung) ---------- */
+let shiftMode = 'person', shiftDeviation = false, shiftExtras = [];
+$$('[data-smode]').forEach(b => b.onclick = () => {
+  shiftMode = b.dataset.smode;
+  $$('[data-smode]').forEach(x => x.setAttribute('aria-pressed', x === b));
+  $('#shiftPersonRow').hidden = shiftMode !== 'person';
+  $('#shiftTeamRow').hidden = shiftMode !== 'team';
+  $('#shiftExtraBox').hidden = shiftMode !== 'team';
+  if (shiftMode !== 'team') { shiftDeviation = false; shiftExtras = []; $('#shiftDeviation').checked = false; $('#shiftExtraPicker').hidden = true; }
+  renderShiftExtraPicker();
+});
+$('#shiftDeviation').onchange = e => {
+  shiftDeviation = e.target.checked;
+  $('#shiftExtraPicker').hidden = !shiftDeviation;
+  renderShiftExtraPicker();
+};
+function shiftExtraCandidates(teamEntry) {
+  const teamIds = new Set(teamEntry ? teamEntry.ids : []);
+  return members
+    .filter(x => !teamIds.has(x.id) && x.available)
+    .sort((a, b) => (b.springer - a.springer) || (b.ausb - a.ausb) || (a.total - b.total))
+    .slice(0, 40);
+}
+function renderShiftExtraPicker() {
+  const box = $('#shiftExtraPicker');
+  if (!box || shiftMode !== 'team' || !shiftDeviation) { if (box) box.hidden = true; return; }
+  const teamId = +$('#shiftTeam').value;
+  const t = teamsList().find(x => x.id === teamId);
+  const cands = shiftExtraCandidates(t);
+  box.hidden = false;
+  box.innerHTML = cands.length ? cands.map(x => {
+    const on = shiftExtras.includes(x.id);
+    return `<button type="button" data-shiftx="${x.id}" aria-pressed="${on}">${av(x)}${esc(fullName(x))}<span class="cls">${esc(x.cls)}${x.ausb ? ' · AUSB' : ''}${x.springer ? ' · SPR' : ''}</span><span class="check ${on ? 'yes' : ''}" style="width:24px;height:24px;margin-left:6px">${on ? '<i data-lucide="check"></i>' : ''}</span></button>`;
+  }).join('') : '<div class="muted" style="padding:10px">Keine verfügbaren Personen.</div>';
+  $$('#shiftExtraPicker [data-shiftx]').forEach(b => b.onclick = () => {
+    const id = +b.dataset.shiftx;
+    shiftExtras = shiftExtras.includes(id) ? shiftExtras.filter(v => v !== id) : [...shiftExtras, id];
+    b.setAttribute('aria-pressed', shiftExtras.includes(id));
+    b.querySelector('.check')?.classList.toggle('yes', shiftExtras.includes(id));
+    icons();
+  });
+  icons();
+}
+function creditShift(ids, d) {
+  ids.forEach(id => {
+    const x = m(id); if (!x) return;
+    x.total++; if (d.getFullYear() === TODAY.getFullYear()) x.year++;
+    if (d.getMonth() === TODAY.getMonth() && d.getFullYear() === TODAY.getFullYear()) x.month++;
+  });
+}
 $('#addShift').onsubmit = e => {
-  e.preventDefault(); const x = m(+$('#shiftPerson').value); if (!x) { toast('Keine Person gewählt', true); return; }
+  e.preventDefault();
   const d = parse($('#shiftDate').value); if (isNaN(d)) { toast('Bitte ein Datum wählen', true); return; }
-  x.total++; if (d.getFullYear() === TODAY.getFullYear()) x.year++; if (d.getMonth() === TODAY.getMonth() && d.getFullYear() === TODAY.getFullYear()) x.month++;
-  save(); renderAll(); toast(`Schicht für ${x.first} nachgetragen`);
+  if (shiftMode === 'person') {
+    const x = m(+$('#shiftPerson').value); if (!x) { toast('Keine Person gewählt', true); return; }
+    creditShift([x.id], d);
+    save(); renderAll(); toast(`Schicht für ${x.first} nachgetragen`);
+    return;
+  }
+  // Team-Modus
+  const teamId = +$('#shiftTeam').value;
+  const t = teamsList().find(x => x.id === teamId);
+  if (!t) { toast('Kein Team gewählt', true); return; }
+  creditShift(t.ids, d);
+  let note = `Schicht für Team ${t.id} nachgetragen`;
+  if (shiftDeviation && shiftExtras.length) {
+    const valid = shiftExtras.filter(id => m(id) && !t.ids.includes(id));
+    if (valid.length) { creditShift(valid, d); note += ` (+${valid.length} zusätzliche Person/en)`; }
+  }
+  save(); renderAll(); shiftExtras = []; $('#shiftDeviation').checked = false; $('#shiftExtraPicker').hidden = true; shiftDeviation = false;
+  toast(note);
 };
 function renderExams() {
   const lim = iso(addDays(TODAY, 62)), list = blocks.filter(b => b.to >= iso(TODAY) && b.from <= lim).sort((a, b) => a.from < b.from ? -1 : 1);

@@ -209,7 +209,16 @@
         <div class="side-col">
           <div class="card"><div class="card-head"><h2>Schicht nachtragen</h2></div>
             <form class="form" id="addShift">
-              <label>Person<select class="inp" id="shiftPerson"></select></label>
+              <div class="seg" id="shiftMode" role="group" aria-label="Wer">
+                <button type="button" aria-pressed="true" data-smode="person">Person</button>
+                <button type="button" aria-pressed="false" data-smode="team">Team</button>
+              </div>
+              <label id="shiftPersonRow">Person<select class="inp" id="shiftPerson"></select></label>
+              <label id="shiftTeamRow" hidden>Team<select class="inp" id="shiftTeam"></select></label>
+              <div id="shiftExtraBox" hidden>
+                <label class="c-box"><input type="checkbox" id="shiftDeviation"><span>Abweichung: zusätzliche Springer eintragen</span></label>
+                <div class="picker" id="shiftExtraPicker" hidden></div>
+              </div>
               <label>Datum<input class="inp" type="date" id="shiftDate" required></label>
               <button class="btn dark wide" type="submit"><i data-lucide="plus"></i>Schicht nachtragen</button>
             </form>
