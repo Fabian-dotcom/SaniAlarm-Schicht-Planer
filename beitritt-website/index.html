@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      name="description"
+      content="Offline-Beitrittsformular der SaniAlarm-Gruppe. Deine Angaben werden nicht an einen Server übertragen."
+    />
+    <title>Beitritt – SaniAlarm</title>
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <p class="eyebrow">SaniAlarm · Beitritt</p>
+        <h1>Schön, dass du dabei sein möchtest.</h1>
+        <p class="intro">
+          Fülle das Formular aus und zeige den fertigen QR-Code anschließend der
+          Gruppenleitung.
+        </p>
+      </header>
+
+      <section id="unavailable" class="card notice" hidden>
+        <h2>Einladung fehlt</h2>
+        <p>Öffne diese Seite über den Einladungs-QR-Code deiner Gruppenleitung.</p>
+      </section>
+
+      <form id="form" class="card form" autocomplete="off" hidden>
+        <label>
+          Vorname <span aria-hidden="true">*</span>
+          <input name="givenName" required maxlength="80" autocomplete="given-name" placeholder="z. B. Lena" />
+        </label>
+        <label>
+          Nachname <span class="optional">(optional)</span>
+          <input name="familyName" maxlength="100" autocomplete="family-name" placeholder="z. B. Hoffmann" />
+        </label>
+        <label>
+          Klasse / Stufe <span class="optional">(optional)</span>
+          <input name="group" maxlength="80" autocomplete="off" placeholder="z. B. 10b" />
+        </label>
+        <label>
+          Telefon / WhatsApp <span class="optional">(optional)</span>
+          <input name="phone" type="tel" maxlength="40" autocomplete="tel" placeholder="Für Alarme und AG-Absprachen" />
+        </label>
+
+        <div class="privacy">
+          <h2>Was mit deinen Angaben passiert</h2>
+          <p>
+            Die Angaben werden nur auf diesem Gerät verarbeitet und verschlüsselt. Es gibt keinen Versand
+            an einen Server. Zeige oder sende den fertigen Code an deine Gruppenleitung.
+          </p>
+          <label class="consent">
+            <input id="consent" type="checkbox" required />
+            Ich bin mit der Aufnahme in das Team des Schulsanitätsdienstes einverstanden.
+          </label>
+        </div>
+
+        <button id="create" type="submit">Antwortcode erstellen</button>
+        <p id="error" class="error" role="alert" hidden></p>
+      </form>
+
+      <section id="result" class="card result" aria-live="polite" hidden>
+        <h2>Dein Antwortcode</h2>
+        <p>
+          Zeige diesen QR-Code der Gruppenleitung oder kopiere den Antwort-Text unten und sende ihn per Chat (z. B. WhatsApp oder Schul-Messenger).
+        </p>
+        <canvas id="qr" aria-label="Antwort-QR-Code"></canvas>
+        <div style="margin: 12px 0 16px; width: 100%;">
+          <label for="responseText" style="font-size: 13px; font-weight: 500; display: block; margin-bottom: 4px;">Antwort-Text zum Kopieren &amp; Senden:</label>
+          <textarea id="responseText" readonly rows="3" style="width: 100%; box-sizing: border-box; font-family: monospace; font-size: 12px; padding: 8px; border-radius: 8px; border: 1px solid #ccc; resize: none;"></textarea>
+          <button id="copyResponse" type="button" style="margin-top: 8px; width: 100%;">Text kopieren</button>
+        </div>
+        <button id="reset" class="secondary" type="button">Angaben löschen / Neu</button>
+      </section>
+
+      <footer>
+        <p>Keine Registrierung, kein Tracking und keine automatische Übertragung.</p>
+      </footer>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
