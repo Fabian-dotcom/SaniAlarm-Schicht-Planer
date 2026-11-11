@@ -68,26 +68,25 @@ fun PersonenTab(vm: PlanerViewModel) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp, horizontal = 12.dp)
     ) {
-        // Kopf: Titel + Aktionen in zwei Zeilen (kein Abschneiden mehr)
-        Text(
-            if (suche.isBlank()) "Personen-Kartei (${state.datei.personen.size})"
-            else "Treffer: ${gefilterte.size} von ${state.datei.personen.size}",
-            style = MaterialTheme.typography.headlineMedium
-        )
+        // v2-Kopf: großer Titel mit Zähler + Segmented Control (Liste/Kacheln)
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            FilterChip(
-                selected = !gridAnsicht, onClick = { gridAnsicht = false }, label = { Text("Liste") },
-                modifier = Modifier.weight(1f)
-            )
-            FilterChip(
-                selected = gridAnsicht, onClick = { gridAnsicht = true }, label = { Text("Kacheln") },
-                modifier = Modifier.weight(1f)
-            )
-            Button(onClick = { neu = true }, modifier = Modifier.weight(1f)) { Text("+ Neu") }
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text("Mitglieder", style = MaterialTheme.typography.displayLarge)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "(${state.datei.personen.size})",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = V2.Muted,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            V2Segmented(
+                listOf("liste" to "Liste", "kacheln" to "Kacheln"),
+                if (gridAnsicht) "kacheln" else "liste",
+            ) { gridAnsicht = it == "kacheln" }
         }
         // Aktionen als Sektions-Karte (ProfilStil statt verstreuter Buttons)
         Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -113,14 +112,28 @@ fun PersonenTab(vm: PlanerViewModel) {
         }
         Spacer(Modifier.height(4.dp))
 
-        // Volltextsuche (#40)
+        // v2-Suchfeld (rund, grauer Placeholder)
         OutlinedTextField(
             value = suche,
             onValueChange = { suche = it },
-            label = { Text("Suchen (Vor-/Nachname, Klasse)") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            placeholder = { Text("Suchen nach Name oder Klasse", color = Color(0xFF9C9A92)) },
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
         )
+        Spacer(Modifier.height(8.dp))
+        // v2-Filterchips: Ausgebildet / Springer / Ohne Team + Neu-Button
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            V2MiniButton("Ausgebildet", ghost = true,
+                onClick = { })
+            V2MiniButton("Springer", ghost = true, onClick = { })
+            Spacer(Modifier.weight(1f))
+            V2MiniButton("+ Neu", onClick = { neu = true })
+        }
         Spacer(Modifier.height(6.dp))
 
         if (state.datei.personen.isEmpty()) {

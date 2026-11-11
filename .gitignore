@@ -24,6 +24,9 @@ URSPRUNG/
 
 docs/
 BILDER/
+
+# Design-Prototyp: lokale Referenz fuer die v2-Umsetzung, nicht Teil des Repos
+index-v2/
 beitritt-website/node_modules/
 beitritt-website/dist/
 

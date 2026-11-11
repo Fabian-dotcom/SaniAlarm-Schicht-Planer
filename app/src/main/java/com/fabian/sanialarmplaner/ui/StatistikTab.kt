@@ -1,7 +1,11 @@
 package com.fabian.sanialarmplaner.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.FlowRow
@@ -9,8 +13,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import java.time.format.TextStyle
+import java.util.Locale
 import com.fabian.sanialarmplaner.data.vollerName
 import com.fabian.sanialarmplaner.ui.theme.ActiveSaniBlue
 import com.fabian.sanialarmplaner.ui.theme.ConflictRed
@@ -33,106 +43,146 @@ fun StatistikTab(vm: PlanerViewModel) {
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // ------------------------------------------------------------------
-        // 1. GLOBALER FILTER-HEADER (kompakt)
+        // 1. HEADER (v2: großer Titel) + tf-Chips als Mini-Buttons
         // ------------------------------------------------------------------
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(
-                selected = state.statistikVon == null && state.statistikBis == null,
-                onClick = { vm.setStatistikZeitraum(null, null) },
-                label = { Text("Alles") }
-            )
-            FilterChip(
-                selected = state.statistikVon == LocalDate.now().withDayOfYear(1),
-                onClick = { vm.setStatistikZeitraum(LocalDate.now().withDayOfYear(1), LocalDate.now()) },
-                label = { Text("Dieses Jahr") }
-            )
-            FilterChip(
-                selected = state.statistikVon == LocalDate.now().withDayOfMonth(1),
-                onClick = { vm.setStatistikZeitraum(LocalDate.now().withDayOfMonth(1), LocalDate.now()) },
-                label = { Text("Dieser Monat") }
-            )
+        Text("Statistik", style = MaterialTheme.typography.displayLarge,
+            modifier = Modifier.padding(top = 14.dp, bottom = 14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            V2MiniButton("Alles", ghost = !(state.statistikVon == null && state.statistikBis == null),
+                onClick = { vm.setStatistikZeitraum(null, null) })
+            V2MiniButton("Dieses Jahr",
+                ghost = !(state.statistikVon == LocalDate.now().withDayOfYear(1)),
+                onClick = { vm.setStatistikZeitraum(LocalDate.now().withDayOfYear(1), LocalDate.now()) })
+            V2MiniButton("Monat",
+                ghost = !(state.statistikVon == LocalDate.now().withDayOfMonth(1)),
+                onClick = { vm.setStatistikZeitraum(LocalDate.now().withDayOfMonth(1), LocalDate.now()) })
         }
-        val formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
-        val vonText = state.statistikVon?.format(formatter) ?: "Anfang"
-        val bisText = state.statistikBis?.format(formatter) ?: "Heute"
-        Text("Zeitraum: $vonText – $bisText", style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         // ------------------------------------------------------------------
-        // 2. HAUPT-KENNZAHLEN (Highlights, zwei Grid-Kacheln)
+        // 2. SUMMARY als dunkle v2-Karte (nur 1 Karte, wie `.summary`)
         // ------------------------------------------------------------------
         val stats = vm.statistik()
         val kennzahlen = vm.kennzahlen()
         val gesamtImZeitraum = stats.sumOf { it.geplant + it.historisch }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            val top = kennzahlen.sortedByDescending { it.belastungsIndex }.take(3)
-            SaniKennzahlKachel(
-                "Meiste Einsätze",
-                if (top.isEmpty()) "—" else top.first().name.split(" ").first(),
-                if (top.isEmpty()) "Keine Daten im Zeitraum"
-                else "Top 3: ${top.joinToString { it.name.split(" ").first() }}",
-                Modifier.weight(1f)
-            )
-            SaniKennzahlKachel(
-                "Dienste im Zeitraum",
-                "$gesamtImZeitraum",
-                "${stats.size} Personen aktiv",
-                Modifier.weight(1f)
-            )
+        Spacer(Modifier.height(14.dp))
+        V2DunkelKarte(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f)) {
+                    V2Eyebrow("Einsätze gesamt")
+                    Text("$gesamtImZeitraum", style = MaterialTheme.typography.headlineMedium,
+                        color = Color.White)
+                }
+                Column(Modifier.weight(1f)) {
+                    V2Eyebrow("Aktive Sanis")
+                    Text("${stats.size}", style = MaterialTheme.typography.headlineMedium,
+                        color = Color.White)
+                }
+                Column(Modifier.weight(1f)) {
+                    V2Eyebrow("Ø pro Person")
+                    Text(
+                        if (stats.isEmpty()) "0" else "%.1f".format(gesamtImZeitraum.toDouble() / stats.size),
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = Color.White,
+                    )
+                }
+            }
         }
 
         // ------------------------------------------------------------------
-        // 3. PERSONEN-KENNZAHLEN (kompakt: 2 Schlüsselwerte + Vertrauens-Badge)
+        // 3. BELASTUNGSINDEX als v2-Balkenliste mit Avatar + Ø-Marke
         // ------------------------------------------------------------------
-        SaniSektion("Personen-Kennzahlen") {
-            if (kennzahlen.isEmpty()) {
-                Text("Keine Personen.", style = MaterialTheme.typography.bodySmall)
-            } else {
-                var detailPerson by remember { mutableStateOf<com.fabian.sanialarmplaner.logic.PersonKennzahlen?>(null) }
-                kennzahlen.forEach { k ->
-                    Card(
-                        onClick = { detailPerson = k },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                        shape = MaterialTheme.shapes.medium,
-                    ) {
-                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(k.name, style = MaterialTheme.typography.bodyLarge)
-                                Spacer(Modifier.height(2.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Text(
-                                        "Index %.2f".format(k.belastungsIndex),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Text(
-                                        "Fairness %+.0f%%".format(k.fairnessAbweichung * 100),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = when {
-                                            k.fairnessAbweichung > 0.3 -> ConflictRed
-                                            k.fairnessAbweichung > 0.1 -> PendingOrange
-                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                        }
-                                    )
-                                }
-                            }
-                            SaniBadge(
-                                "Vertrauen: ${k.datenVertrauen}",
-                                vertrauensFarbe(
-                                    k.datenVertrauen,
-                                    MaterialTheme.colorScheme.primary,
-                                    PendingOrange,
-                                    ConflictRed
-                                )
-                            )
+        Spacer(Modifier.height(26.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text("Belastungsindex", style = MaterialTheme.typography.headlineMedium)
+            Spacer(Modifier.width(8.dp))
+            Text("relativ zum Ø", style = MaterialTheme.typography.bodySmall, color = V2.Muted)
+        }
+        Spacer(Modifier.height(8.dp))
+        if (kennzahlen.isEmpty()) {
+            Text("Keine Personen.", style = MaterialTheme.typography.bodySmall)
+        } else {
+            var detailPerson by remember { mutableStateOf<com.fabian.sanialarmplaner.logic.PersonKennzahlen?>(null) }
+            val maxIndex = kennzahlen.maxOf { it.belastungsIndex }.coerceAtLeast(0.01)
+            val mittel = kennzahlen.map { it.belastungsIndex }.average().takeIf { !it.isNaN() } ?: 0.0
+            kennzahlen.forEach { k ->
+                V2BalkenRow(
+                    k.name,
+                    "%.2f".format(k.belastungsIndex),
+                    (k.belastungsIndex / maxIndex).toFloat(),
+                    istDurchschnitt = kotlin.math.abs(k.belastungsIndex - mittel) < 0.05,
+                )
+                // Fairness-Badge + Klick für den Bericht
+                Row(
+                    Modifier.fillMaxWidth().clickableWithoutRippleCompat { detailPerson = k }.padding(start = 32.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SaniBadge(
+                        "Fairness %+.0f%%".format(k.fairnessAbweichung * 100),
+                        when {
+                            k.fairnessAbweichung > 0.3 -> V2.Rot
+                            k.fairnessAbweichung > 0.1 -> V2.Orange
+                            else -> V2.Gruen
                         }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    SaniBadge("Vertrauen: ${k.datenVertrauen}", v2VertrauensFarbe(
+                        k.datenVertrauen, V2.Blau, V2.Orange, V2.Rot))
+                    Spacer(Modifier.weight(1f))
+                    Text("Details ›", style = MaterialTheme.typography.labelSmall, color = V2.Blau)
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+            detailPerson?.let { k ->
+                PersonBerichtDialog(k) { detailPerson = null }
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // 3b. VERTEILUNG + Springer (kompakt)
+        // ------------------------------------------------------------------
+        Spacer(Modifier.height(16.dp))
+        SaniSektion("Verteilung aktueller Plan") {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(selected = zeigeVerlauf, onClick = { zeigeVerlauf = true }, label = { Text("Balken") })
+                FilterChip(selected = !zeigeVerlauf, onClick = { zeigeVerlauf = false }, label = { Text("Kuchen") })
+            }
+            val planStats = state.plan.filter { it.hatDienst }
+                .groupingBy { it.mitglieder.joinToString(" & ") }.eachCount()
+            if (planStats.isEmpty()) {
+                Text("Noch kein Plan generiert.", style = MaterialTheme.typography.bodySmall)
+            } else if (zeigeVerlauf) {
+                val max = planStats.values.max()
+                planStats.entries.sortedByDescending { it.value }.forEach { (team, n) ->
+                    SaniBalken(team, "$n×", n.toFloat() / max)
+                }
+            } else {
+                val gesamt = planStats.values.sum().toFloat()
+                Row(Modifier.fillMaxWidth().height(24.dp)) {
+                    val farben = listOf(V2.Blau, V2.Orange, V2.Rot,
+                        Color(0xFF386A20), V2.Lavendel, Color(0xFF006A60))
+                    planStats.values.sortedDescending().forEachIndexed { i, n ->
+                        Box(Modifier.weight(n.toFloat()).fillMaxHeight().background(farben[i % farben.size]))
                     }
                 }
-                // Ebene 2: alle weiteren Werte nur im Dialog
-                detailPerson?.let { k ->
-                    PersonBerichtDialog(k) { detailPerson = null }
+                Spacer(Modifier.height(4.dp))
+                planStats.entries.sortedByDescending { it.value }.forEachIndexed { i, (team, n) ->
+                    val farben = listOf(V2.Blau, V2.Orange, V2.Rot,
+                        Color(0xFF386A20), V2.Lavendel, Color(0xFF006A60))
+                    Row {
+                        Box(Modifier.size(10.dp).background(farben[i % farben.size]))
+                        Spacer(Modifier.width(4.dp))
+                        Text("$team: $n× (${(n / gesamt * 100).toInt()}%)", style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
+        }
+
+        SaniSektion("Springer-Einsätze") {
+            val springerStats = state.plan.mapNotNull { it.springer }.groupingBy { it }.eachCount()
+            if (springerStats.isEmpty()) {
+                Text("Keine Springer-Einsätze im Plan.", style = MaterialTheme.typography.bodySmall)
+            }
+            springerStats.forEach { (s, n) -> Text("• $s: $n×", style = MaterialTheme.typography.bodyMedium) }
         }
 
         // ------------------------------------------------------------------
@@ -183,24 +233,27 @@ fun StatistikTab(vm: PlanerViewModel) {
             springerStats.forEach { (s, n) -> Text("• $s: $n×", style = MaterialTheme.typography.bodyMedium) }
         }
 
-        // Schulische Belastung kompakt
-        SaniSektion("Schulische Belastung (kommende 2 Monate)") {
-            val schulBelastung = vm.schulischeBelastung()
-            if (schulBelastung.isEmpty()) {
-                Text("Keine Schultermine eingetragen (Kalender-Tab).", style = MaterialTheme.typography.bodySmall)
-            } else {
-                val max = schulBelastung.values.maxOf { it.first }.coerceAtLeast(1)
-                schulBelastung.entries.sortedByDescending { it.value.first }.forEach { (name, pair) ->
-                    val (anzahl, termine) = pair
-                    SaniBalken(
-                        name, "$anzahl×", anzahl.toFloat() / max,
-                        when {
-                            anzahl >= 3 -> ConflictRed
-                            anzahl >= 1 -> PendingOrange
-                            else -> MaterialTheme.colorScheme.primary
-                        }
-                    )
+        // Prüfungsphase-Liste im v2-Stil (`.exam`-Zeilen): Datum groß links
+        Spacer(Modifier.height(26.dp))
+        SaniAufklapp("Prüfungsphase · nächste 2 Monate", startOffen = false) {
+            val termine = vm.state.datei.schultermine
+                .filter { it.typ == "Klassenarbeit" }
+                .mapNotNull { t ->
+                    try { LocalDate.parse(t.datum) to t } catch (_: Exception) { null }
                 }
+                .filter { (d, _) -> !d.isBefore(LocalDate.now()) }
+                .sortedBy { it.first }
+                .take(10)
+            if (termine.isEmpty()) {
+                Text("Keine Klassenarbeiten eingetragen (Kalender-Tab).", style = MaterialTheme.typography.bodySmall)
+            }
+            termine.forEach { (d, t) ->
+                V2TerminZeile(
+                    d, t.titel,
+                    if (t.klassen.isNotEmpty()) "${t.klassen.joinToString()} · ${t.personNamen.size + t.stufen.size} betroffen"
+                    else if (t.stufen.isNotEmpty()) "Stufe ${t.stufen.joinToString()}"
+                    else "Einzelne Person"
+                )
             }
         }
 
@@ -296,4 +349,23 @@ fun EinsatzErfassung(vm: PlanerViewModel) {
             }
         }
     }
+}
+
+// ==============================================================================
+// LOKALE v2-BAUSTEINE (Stil aus index-v2/index.html)
+// ==============================================================================
+
+private fun v2VertrauensFarbe(wert: String, ok: Color, warn: Color, kritisch: Color): Color =
+    when (wert.lowercase()) {
+        "hoch" -> ok
+        "mittel" -> warn
+        else -> kritisch
+    }
+
+private fun Modifier.clickableWithoutRippleCompat(onClick: () -> Unit): Modifier = composed {
+    clickable(
+        interactionSource = remember { MutableInteractionSource() },
+        indication = null,
+        onClick = onClick,
+    )
 }

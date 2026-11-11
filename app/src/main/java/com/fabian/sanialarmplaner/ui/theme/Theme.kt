@@ -2,6 +2,8 @@ package com.fabian.sanialarmplaner.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
+import com.fabian.sanialarmplaner.ui.V2
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
@@ -10,31 +12,35 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 
 private val LightColorScheme = lightColorScheme(
-    primary = LightPrimary,
-    onPrimary = LightOnPrimary,
-    background = LightBackground,
-    onBackground = LightOnBackground,
-    surface = LightSurface,
-    onSurface = LightOnSurface,
-    error = LightError,
-    onError = LightOnError,
-    outline = LightOutline,
-    secondary = BadgeGrau,
-    onSecondary = LightOnPrimary,
+    primary = V2.Blau,
+    onPrimary = Color.White,
+    background = V2.Hintergrund,        // warmes Creme aus index-v2
+    onBackground = V2.Ink,
+    surface = V2.Surface,
+    onSurface = V2.Ink,
+    error = V2.Rot,
+    onError = Color.White,
+    outline = V2.Linie,
+    secondary = V2.Lila,
+    onSecondary = Color.White,
+    secondaryContainer = V2.KarteDunkel,
+    onSecondaryContainer = Color.White,
 )
 
 private val DarkColorScheme = darkColorScheme(
-    primary = DarkPrimary,
-    onPrimary = DarkOnPrimary,
-    background = DarkBackground,
-    onBackground = DarkOnBackground,
-    surface = DarkSurface,
-    onSurface = DarkOnSurface,
-    error = DarkError,
-    onError = DarkOnBackground,
-    outline = DarkOutline,
-    secondary = BadgeGrau,
-    onSecondary = DarkOnPrimary,
+    primary = V2.Blau,
+    onPrimary = Color.White,
+    background = Color(0xFF121212),
+    onBackground = Color(0xFFE9ECEF),
+    surface = V2.KarteDunkel,
+    onSurface = Color(0xFFE9ECEF),
+    error = V2.Rot,
+    onError = Color.White,
+    outline = Color(0xFF495057),
+    secondary = V2.Lila,
+    onSecondary = Color.White,
+    secondaryContainer = V2.KarteDunkel,
+    onSecondaryContainer = Color.White,
 )
 
 /** Shapes nach docs/UI_DESIGN_SYSTEM.md Abschnitt 4 */
