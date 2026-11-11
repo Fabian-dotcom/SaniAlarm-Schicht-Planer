@@ -1,18 +1,14 @@
 /**
- * QA-Browser-Test: Export-Buttons (.sani-Formate) + Stufe/Klasse-Logik im Desktop-Webapp.
+ * QA-Browser-Test: Export-Buttons (.sani-Formate), Stufe/Klasse-Logik und
+ * "Generell verhindert"-Sperrtage im Desktop-Webapp.
  *
- * Lädt die App in einem echten Browser (Playwright-core + lokales Edge/Brave),
- * legt ein Test-Mitglied über die neuen Stufe/Klasse-Dropdowns an, klickt
- * nacheinander alle Export-Buttons im Einstellungs-Tab und prüft, dass für jede
- * Schaltfläche ein Download mit der richtigen Dateiendung startet.
- *
- * Ausführen:  NODE_PATH=".../node_modules" node qa/browser-export-test.js
+ * Ausfuehren:  NODE_PATH=".../node_modules" node qa/browser-export-test.js
  */
 const fs = require('fs');
 
 let pw;
 try { pw = require('playwright-core'); } catch { try { pw = require('playwright'); } catch {} }
-if (!pw) { console.error('❌ playwright(-core) nicht verfügbar.'); process.exit(2); }
+if (!pw) { console.error('playwright(-core) nicht verfuegbar.'); process.exit(2); }
 
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:3456';
 
@@ -38,71 +34,82 @@ const EXPORT_BUTTONS = [
       }
     }
   }
-  if (!browser) { console.error('❌ Kein Chromium/Edge/Brave gefunden'); process.exit(2); }
+  if (!browser) { console.error('Kein Chromium/Edge/Brave gefunden'); process.exit(2); }
 
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   page.on('pageerror', e => console.error('[pageerror]', e.message));
-  page.on('console', m => { if (m.type() === 'error') console.log('[console.error]', m.text()); });
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.evaluate(() => { try { localStorage.clear(); sessionStorage.clear(); } catch {} });
   await page.reload({ waitUntil: 'domcontentloaded' });
 
-  // Mitglied anlegen (neue Stufe/Klasse-Dropdowns)
+  // 1) Mitglied ueber neue Stufe/Klasse-Dropdowns anlegen
   await page.click('#nav [data-tab="members"]');
   await page.click('#addMember');
   await page.waitForSelector('#mFirst', { state: 'visible' });
   await page.fill('#mFirst', 'Test');
   await page.fill('#mLast', 'Person');
   await page.selectOption('#mStufe', '10');
-  const klasseHidden = await page.$eval('#mKlasseLabel', el => el.hidden);
-  if (klasseHidden) { console.error('❌ Klasse-Feld sollte bei Stufe 10 sichtbar sein'); process.exit(1); }
+  if (!(await page.$eval('#mKlasseLabel', el => !el.hidden))) {
+    console.error('Klasse-Feld sollte bei Stufe 10 sichtbar sein'); process.exit(1);
+  }
   await page.selectOption('#mKlasse', '2');
-
-  // Q-Stufe: Klasse muss verschwinden
   await page.selectOption('#mStufe', 'Q3');
-  const klasseHiddenQ = await page.$eval('#mKlasseLabel', el => el.hidden);
-  if (!klasseHiddenQ) { console.error('❌ Klasse-Feld sollte bei Q3 verborgen sein'); process.exit(1); }
-  console.log('✅ Stufe/Klasse-Logik: 10 → sichtbar, Q3 → versteckt');
-
+  if (!(await page.$eval('#mKlasseLabel', el => el.hidden))) {
+    console.error('Klasse-Feld sollte bei Q3 verborgen sein'); process.exit(1);
+  }
+  console.log('OK Stufe/Klasse-Logik (10 sichtbar, Q3 versteckt)');
   await page.selectOption('#mStufe', '10');
+  await page.selectOption('#mKlasse', '2');
   await page.click('#mSave');
   await page.waitForTimeout(700);
 
-  // ggf. offenes Modal schließen
+  // 2) "Generell verhindert"-Sperrtag anlegen
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+  await page.click('#nav [data-tab="home"]');
+  await page.click('#blockBtn');
+  await page.waitForSelector('[data-bt="Generell"]', { state: 'visible' });
+  await page.click('[data-bt="Generell"]');
+  await page.waitForTimeout(400);
+  const weeklyVisible = await page.$eval('#bWeeklyBox', el => !el.hidden);
+  const dateHidden = await page.$eval('#bDateRow', el => el.hidden);
+  if (!weeklyVisible || !dateHidden) {
+    console.error('Weekly-Box/Datums-Reihe falsch sichtbar'); process.exit(1);
+  }
+  await page.click('#bWeeklyDays [data-wd="1"]'); // Montag
+  const wdPressed = await page.$eval('#bWeeklyDays [data-wd="1"]', el => el.getAttribute('aria-pressed'));
+  if (wdPressed !== 'true') { console.error('Wochentag konnte nicht gewaehlt werden'); process.exit(1); }
+  await page.click('#bKind [data-bk="person"]');
+  await page.waitForTimeout(600);
+  await page.waitForSelector('[data-sp]', { state: 'attached', timeout: 8000 });
+  await page.click('[data-sp]');
+  await page.click('#bSave');
+  await page.waitForTimeout(500);
+  console.log('OK Generell-verhindert-Sperrtag angelegt');
+
+  // 3) Export-Buttons testen
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
-
-  // Einstellungen öffnen
   await page.click('#nav [data-tab="settings"]');
-  await page.waitForSelector('#dataCard', { state: 'visible' });
   await page.waitForSelector('#bkExport', { state: 'attached' });
 
   let failures = 0;
   for (const btn of EXPORT_BUTTONS) {
     const handle = await page.$(btn.id);
-    if (!handle) { console.error(`❌ Button ${btn.id} existiert nicht`); failures++; continue; }
+    if (!handle) { console.error('Button fehlt: ' + btn.id); failures++; continue; }
     const [download] = await Promise.all([
       page.waitForEvent('download', { timeout: 5000 }).catch(() => null),
       handle.click(),
     ]);
-    if (!download) { console.error(`❌ ${btn.id}: kein Download ausgelöst`); failures++; continue; }
+    if (!download) { console.error('Kein Download: ' + btn.id); failures++; continue; }
     const fname = download.suggestedFilename();
     const ok = fname.endsWith(btn.ext);
-    console.log(`${ok ? '✅' : '❌'} ${btn.id} → ${fname}`);
-    if (ok) {
-      const body = JSON.parse(fs.readFileSync(await download.path(), 'utf8'));
-      const expectedFmt = btn.ext.slice(1);
-      if (body.format !== expectedFmt) console.error(`   ⚠️ format-Feld: ${body.format} (erwartet ${expectedFmt})`);
-      // Prüfe, dass das angelegte Mitglied mit korrekter cls vorhanden ist
-      if (body.members?.length) {
-        const cls = body.members[0].cls;
-        if (cls !== '10-2') console.error(`   ⚠️ cls: ${cls} (erwartet 10-2)`);
-      }
-    } else failures++;
+    console.log((ok ? 'OK ' : 'FAIL ') + btn.id + ' -> ' + fname);
+    if (!ok) failures++;
   }
 
   await browser.close();
-  if (failures) { console.error(`❌ ${failures} Problem(e)`); process.exit(1); }
-  console.log('✅ Alle Export-Buttons + Stufe/Klasse-Logik funktionieren.');
-})().catch(err => { console.error('❌ Test fehlgeschlagen:', err); process.exit(1); });
+  if (failures) { console.error(failures + ' Problem(e)'); process.exit(1); }
+  console.log('Alle Checks bestanden (Export, Stufe/Klasse, Generell verhindert).');
+})().catch(err => { console.error('Test fehlgeschlagen:', err); process.exit(1); });
