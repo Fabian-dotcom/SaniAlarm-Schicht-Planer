@@ -307,12 +307,13 @@ function renderMembers() {
   const th = (k, label) => `<th><button data-sort="${k}" aria-label="Sortieren nach ${label}">${label}${sortKey === k ? `<i data-lucide="${sortDir > 0 ? 'arrow-up' : 'arrow-down'}" style="width:13px;height:13px"></i>` : ''}</button></th>`;
   $('#memTable').innerHTML = `<thead><tr>${th('name', 'Name')}${th('cls', 'Klasse')}<th>Rolle</th><th>Team</th>${th('total', 'Gesamt')}${th('year', 'Jahr')}${th('planned', 'Geplant')}<th>Verfügbar</th><th></th></tr></thead><tbody>`
     + (list.length ? list.map(x => `<tr class="${x.available ? '' : 'off'}">
-      <td><div class="who">${av(x)}<span class="nm">${esc(fullName(x))}</span></div></td><td>${esc(x.cls)}</td><td><div class="badges">${badges(x) || '<span class="muted-s">—</span>'}</div></td>
+      <td><div class="who" data-profile="${x.id}" role="button" tabindex="0" aria-label="Profil ${esc(x.first)} öffnen">${av(x)}<span class="nm">${esc(fullName(x))}</span></div></td><td>${esc(x.cls)}</td><td><div class="badges">${badges(x) || '<span class="muted-s">—</span>'}</div></td>
       <td>${esc(teamText(x))}</td><td class="num">${x.total}</td><td class="num">${x.year}</td><td class="num">${pm.get(x.id) || 0}</td>
       <td><button class="switch" role="switch" aria-checked="${x.available}" data-toggle="${x.id}" aria-label="${esc(fullName(x))} verfügbar"></button></td>
       <td><div class="acts"><button class="icon-btn" data-open="${x.id}" aria-label="${esc(fullName(x))} bearbeiten"><i data-lucide="pencil"></i></button>
         <button class="icon-btn del" data-del-member="${x.id}" aria-label="${esc(fullName(x))} löschen"><i data-lucide="trash-2"></i></button></div></td></tr>`).join('')
       : `<tr><td colspan="9"><div class="empty-state">Keine Mitglieder gefunden.</div></td></tr>`) + '</tbody>';
+  $$('#memTable [data-profile]').forEach(el => el.onclick = () => openMemberProfile(+el.dataset.profile));
   renderTeams(); icons();
 }
 function renderTeams() {
@@ -340,7 +341,7 @@ const pickerHTML = x => { const l = partnerCandidates(x); return l.length ? l.ma
 function openMember(id) {
   partnerQuery = ''; partnerOpen = false;
   mdraft = id == null ? { first: '', last: '', cls: '', ausb: false, springer: false, available: true }
-    : (({ first, last, cls, ausb, springer, available }) => ({ first, last, cls, ausb, springer, available }))(m(id));
+    : ({ first, last, cls, ausb, springer, available, quali, ausbildungsDatum, kontakt }) => ({ first, last, cls, ausb, springer, available, quali, ausbildungsDatum, kontakt })(m(id));
   // Stufe/Klasse aus gespeicherter cls ableiten (z. B. "10-2" → Stufe 10, Klasse 2; "q3" → Q3)
   const splitCls = c => {
     const s = String(c || '').toLowerCase();
@@ -372,6 +373,16 @@ function openMember(id) {
       ${sw('available', 'Verfügbar', 'Aus = krank/abwesend, wird nicht eingeplant')}
       ${sw('ausb', 'Ausgebildet (AUSB)', 'Sanitätsausbildung abgeschlossen – jedes Team braucht mindestens eine Person')}
       ${sw('springer', 'Springer', 'Springt bei Unterbesetzung ein')}
+      <div class="set-row"><span>Qualifikation<small>AUSB / In Ausbildung / Helfer</small></span>
+        <div class="select"><select id="mQuali">
+          <option value="helfer" ${mdraft.quali === 'helfer' || (!mdraft.quali && !mdraft.ausb) ? 'selected' : ''}>Helfer</option>
+          <option value="ausbildung" ${mdraft.quali === 'ausbildung' ? 'selected' : ''}>In Ausbildung</option>
+          <option value="ausb" ${mdraft.quali === 'ausb' || (!mdraft.quali && mdraft.ausb) ? 'selected' : ''}>Vollständig (AUSB)</option>
+        </select><i data-lucide="chevron-down"></i></div></div>
+      <div class="set-row"><span>AUSB-Datum<small>seit wann vollständig ausgebildet</small></span>
+        <input class="inp" type="date" id="mAusbDatum" style="max-width:170px" value="${mdraft.ausbildungsDatum || ''}"></div>
+      <div class="set-row"><span>Kontakt<small>Schüler-E-Mail / Telefon (optional)</small></span>
+        <input class="inp" id="mKontakt" style="max-width:220px" value="${esc(mdraft.kontakt || '')}" autocomplete="off"></div>
       ${x ? `<div class="sub-h" style="margin-top:18px">Team-Partner <small>${mates.length}/2 · Team = ${teamIds.length} Pers.</small></div>
         ${mates.length ? mates.map(p => `<div class="prow">${av(p)}<div class="t"><span>${esc(fullName(p))} ${p.ausb ? '<span class="badge">AUSB</span>' : ''}</span><small>Klasse ${esc(p.cls)}${p.available ? '' : ' · abwesend'}</small></div>
           <button class="icon-btn del" data-unpartner="${p.id}" aria-label="${esc(p.first)} als Partner entfernen"><i data-lucide="user-minus"></i></button></div>`).join('') : '<p class="muted">Noch kein Team – wird nur als Springer/Einzelperson geplant.</p>'}
@@ -393,6 +404,9 @@ function openMember(id) {
       if (isQ) mdraft.stufeKlasse.klasse = '';
     };
     $('#mStufe').onchange = e => { mdraft.stufeKlasse.stufe = e.target.value; syncKlasseVisibility(); };
+    const mq = $('#mQuali'); if (mq) mq.onchange = e => { mdraft.quali = e.target.value; };
+    const mad = $('#mAusbDatum'); if (mad) mad.onchange = e => { mdraft.ausbildungsDatum = e.target.value || null; };
+    const mk = $('#mKontakt'); if (mk) mk.oninput = e => { mdraft.kontakt = e.target.value; };
     $('#mKlasse').onchange = e => { mdraft.stufeKlasse.klasse = e.target.value; };
     $$('[data-mset]').forEach(b => b.onclick = () => { const k = b.dataset.mset; mdraft[k] = !mdraft[k]; b.setAttribute('aria-checked', mdraft[k]); });
     $$('[data-partner]').forEach(b => b.onclick = () => { const p = m(+b.dataset.partner); if (linkPartner(x, p)) { partnerOpen = false; partnerQuery = ''; save(); renderAll(); draw(); toast(`${x.first} & ${p.first} sind jetzt ein Team`); } });
@@ -410,7 +424,8 @@ function openMember(id) {
       if (!isQ && !klasse) { toast('Bitte eine Klasse (1–4) wählen', true); $('#mKlasse')?.focus(); return; }
       // Klasse im Format "Stufe-Klasse" (z. B. 10-2) bzw. nur Stufe bei Q1-Q4
       const cls = isQ ? stufe.toLowerCase() : `${stufe}-${klasse}`.toLowerCase();
-      const cleanData = { ...mdraft, first, last: last || '-', cls };
+      const qualiVal = $('#mQuali') ? $('#mQuali').value : (mdraft.quali || ($('#mAusbDatum')?.value ? 'ausb' : 'helfer'));
+      const cleanData = { ...mdraft, first, last: last || '-', cls, quali: qualiVal, ausb: qualiVal === 'ausb', ausbildungsDatum: qualiVal === 'ausb' ? ($('#mAusbDatum')?.value || mdraft.ausbildungsDatum || null) : null, kontakt: ($('#mKontakt')?.value ?? mdraft.kontakt ?? '') };
       const saved = upsertMember(cleanData, id);
       renderAll();
       if (id == null) { toast(`${saved.first} angelegt`); openMember(saved.id); } else { closeModal(); toast('Änderungen gespeichert'); }
@@ -769,6 +784,7 @@ function openInventoryModal() {
         }).join('')}
       </div>
       <div class="modal-actions">
+        <button class="btn ghost" id="reorderMailBtn" style="margin-right:auto"><i data-lucide="mail-plus"></i>Material-Nachbestellung anfordern</button>
         <button class="btn primary" data-close>Schließen</button>
       </div>`, { refresh: draw });
     $$('[data-adj-inv]').forEach(b => b.onclick = () => {
@@ -779,9 +795,32 @@ function openInventoryModal() {
       draw();
       renderInvCounters();
     });
+    $('#reorderMailBtn').onclick = () => reorderRequest();
     icons();
   };
   draw();
+}
+
+/* ---------- Material-Nachbestellung: Text-Template + mailto ---------- */
+function reorderRequest() {
+  const low = Object.entries(inventory).filter(([, it]) => it.count <= it.warnAt);
+  if (!low.length) { toast('Alle Bestände über dem Mindestbestand', false); return; }
+  const lines = low.map(([k, it]) => `- ${it.label}: aktuell ${it.count} (Mindestbestand ${it.warnAt}) → bitte ${Math.max(it.warnAt * 2 - it.count, it.warnAt)} Stück nachbestellen`);
+  const subject = encodeURIComponent('Nachbestellung Schulsanitätsdienst – Material niedrig');
+  const body = encodeURIComponent(`Liebe Verwaltung / liebe betreuende Lehrkraft,\n\nfolgende Materialien des Schulsanitätsdienstes sind unter dem Mindestbestand und sollten nachbestellt werden:\n\n${lines.join('\n')}\n\nVielen Dank!\n(automatisch erstellt mit SaniAlarm am ${TODAY.toLocaleDateString('de-DE')})`);
+  const mailto = `mailto:?subject=${subject}&body=${body}`;
+  openModal(`<h3 id="mTitle">Material-Nachbestellung anfordern</h3>
+    <p class="lead">Folgende Artikel liegen unter dem Mindestbestand:</p>
+    <div class="list">${low.map(([k, it]) => `<div class="set-line"><div><b>${esc(it.label)}</b><small>aktuell ${it.count} · Mindestbestand ${it.warnAt}</small></div><span class="badge warn">nachbestellen</span></div>`).join('')}</div>
+    <label style="display:block;margin-top:12px"><span class="form-label">Nachricht zum Kopieren</span><textarea class="inp" id="reorderText" rows="7" style="width:100%;font-family:inherit">${esc(decodeURIComponent(body))}</textarea></label>
+    <div class="modal-actions">
+      <button class="btn ghost" id="reorderCopy"><i data-lucide="copy"></i>Text kopieren</button>
+      <a class="btn primary" id="reorderMail" href="${mailto}"><i data-lucide="send"></i>E-Mail öffnen</a>
+    </div>`);
+  $('#reorderCopy').onclick = async () => {
+    try { await navigator.clipboard.writeText($('#reorderText').value); toast('Text kopiert'); }
+    catch { $('#reorderText').select(); }
+  };
 }
 
 function loadLog() {
@@ -881,23 +920,57 @@ $('#saveLog').onclick = () => {
   save(); renderAll(); toast(`Einsatz gespeichert · Ort: ${place}`);
 };
 
-/* ---------- Statistik ---------- */
-let tf = 'total';
+/* ---------- Statistik (Fairness-Engine & Kennzahlen) ---------- */
+let tf = 'total', metricView = 'ready';
+const SM = window.SaniMetrics;
+function tfRange() {
+  if (tf === 'month') return { from: iso(new Date(TODAY.getFullYear(), TODAY.getMonth(), 1)), to: iso(TODAY) };
+  if (tf === 'term') { // Schuljahr: August–Juli
+    const sy = TODAY.getMonth() >= 7 ? TODAY.getFullYear() : TODAY.getFullYear() - 1;
+    return { from: iso(new Date(sy, 7, 1)), to: iso(TODAY) };
+  }
+  if (tf === '90') return { from: iso(addDays(TODAY, -90)), to: iso(TODAY) };
+  return { from: '0000-01-01', to: '9999-12-31' };
+}
+function metricsSnapshot() {
+  const r = tfRange();
+  const per = SM.memberMetrics({ members, plan, einsaetze, blocks, today: TODAY, perShift: settings.perShift, from: r.from, to: r.to });
+  const group = SM.groupFairness(per);
+  const kpi = SM.dashboardKPIs(per, group);
+  const scores = SM.solverScores(per, { weights: { f: settings.wF, r: settings.wR, s: settings.wS, k: settings.wK, t: settings.wT } });
+  const scoreById = new Map(scores.map(s => [s.id, s]));
+  return { per, group, kpi, scoreById };
+}
 function renderBars() {
-  const active = members.filter(x => x[tf] > 0), vals = active.map(x => x[tf]);
-  const avg = vals.reduce((a, b) => a + b, 0) / vals.length || 1, max = vals.length ? Math.max(...vals) : 0;
-  $('#summary').innerHTML = statCard('sigma', 'var(--lav)', 'Ø Dienste', avg.toFixed(1).replace('.', ','))
-    + statCard('flame', 'var(--pink)', 'Maximum', max) + statCard('scale', 'var(--green)', 'Fairness', fairnessOf(vals), null, '%')
-    + statCard('users', 'var(--lav)', 'Mit Diensten', active.length, null, `/ ${members.length}`);
-  $('#bars').innerHTML = active.length ? [...active].sort((a, b) => b[tf] - a[tf]).map(x => {
-    const idx = Math.round(x[tf] / avg * 100), color = idx >= 130 ? 'var(--red)' : idx >= 105 ? 'var(--orange)' : 'var(--green)';
-    return `<div class="bar-row"><div class="top-line"><span class="n">${av(x)}${esc(fullName(x))}</span><span class="idx"><b>${idx}%</b> · ${x[tf]}</span></div>
+  const { per, group, kpi, scoreById } = metricsSnapshot();
+  // --- KPI-Karten ---
+  const vkColor = kpi.vkOk ? 'var(--green)' : kpi.vk < 30 ? 'var(--orange)' : 'var(--red)';
+  $('#summary').innerHTML =
+    statCard('calendar-check', 'var(--green)', 'Bereitschafts-Fairness', kpi.readinessFairness, null, '%')
+    + statCard('siren', 'var(--pink)', 'Einsatz-Fairness', kpi.alarmFairness, null, '%')
+    + statCard('scale', 'var(--lav)', 'Gesamtbelastung', kpi.combined, null, '%')
+    + statCard('sigma', vkColor, `VK ${kpi.vkOk ? 'im Ziel' : 'zu hoch'}`, kpi.vk, null, '%');
+  // --- Balken je nach Metrik-Ansicht ---
+  const valOf = p => metricView === 'alarm' ? p.alarms : p.duties;
+  const active = per.filter(p => valOf(p) > 0 || p.duties > 0);
+  const vals = active.map(valOf);
+  const avgL = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+  $('#bars').innerHTML = active.length ? [...active].sort((a, b) => valOf(b) - valOf(a)).map(p => {
+    const x = m(p.id);
+    const idx = avgL ? Math.round(valOf(p) / avgL * 100) : 0;
+    const color = idx >= 130 ? 'var(--red)' : idx >= 105 ? 'var(--orange)' : 'var(--green)';
+    const sc = scoreById.get(p.id);
+    const devTxt = group.perMember[p.id] ? `D=${group.perMember[p.id].D > 0 ? '+' : ''}${group.perMember[p.id].D}` : '';
+    const sub = metricView === 'fair' && sc ? ` · P=${sc.P}` : '';
+    return `<div class="bar-row" data-profile="${p.id}" role="button" tabindex="0" aria-label="Profil ${esc(x.first)} öffnen"><div class="top-line"><span class="n">${av(x)}${esc(fullName(x))}<small>${esc(x.cls || '')}${x.ausb ? ' · AUSB' : ''}${x.springer ? ' · SPR' : ''}</small></span><span class="idx"><b>${idx}%</b> · ${valOf(p)}${sub}<small>${devTxt}</small></span></div>
       <div class="track" role="progressbar" aria-label="Belastungsindex ${esc(x.first)}" aria-valuenow="${idx}" aria-valuemin="0" aria-valuemax="200"><div class="fill" style="width:${Math.min(idx / 2, 100)}%;background:${color}"></div><span class="avgmark"></span></div></div>`;
-  }).join('') + `<div class="bars-legend"><span>0%</span><span>Ø 100%</span><span>200%</span></div>` : '<p class="muted">Noch keine Dienste erfasst.</p>';
+  }).join('') + `<div class="bars-legend"><span>0%</span><span>Ø 100%</span><span>200%</span></div>`
+    : '<p class="muted">Noch keine Dienste erfasst.</p>';
+  $$('#bars [data-profile]').forEach(el => el.onclick = () => openMemberProfile(+el.dataset.profile));
+  // --- Schicht-nachtragen-Dropdowns (bestehende Logik) ---
   const sel = $('#shiftPerson'), cur = sel.value;
   sel.innerHTML = members.map(x => `<option value="${x.id}">${esc(fullName(x))} (${esc(x.cls)})</option>`).join('');
   if (cur && m(+cur)) sel.value = cur;
-  // Team-Dropdown befüllen (nur echte Teams mit 2-3 Personen)
   const tSel = $('#shiftTeam'), tCur = tSel.value;
   const tl = teamsList();
   tSel.innerHTML = tl.length ? tl.map(t => `<option value="${t.id}">Team ${t.id} · ${t.ids.slice(0, 3).map(id => m(id)?.first || '?').join(', ')}${t.ids.length > 3 ? ` +${t.ids.length - 3}` : ''}</option>`).join('') : '<option value="">Noch keine Teams</option>';
@@ -906,6 +979,108 @@ function renderBars() {
   icons();
 }
 $$('[data-tf]').forEach(b => b.onclick = () => { tf = b.dataset.tf; $$('[data-tf]').forEach(x => x.setAttribute('aria-pressed', x === b)); renderBars(); });
+$$('[data-mv]').forEach(b => b.onclick = () => { metricView = b.dataset.mv; $$('[data-mv]').forEach(x => x.setAttribute('aria-pressed', x === b)); renderBars(); });
+
+/* ---------- Mitglieder-Profil: GitHub-Heatmap + Verlauf + Zeugnis ---------- */
+function openMemberProfile(id) {
+  const x = m(id); if (!x) return;
+  const { per } = metricsSnapshot();
+  const p = per.find(q => q.id === id) || {};
+  const from = iso(addDays(TODAY, -365)), to = iso(TODAY);
+  const heat = SM.heatmap(id, plan, einsaetze, blocks, members, from, to, TODAY);
+  // GitHub-Raster: 52 Wochen × 7 Tage (Spalten = Wochen)
+  const weeks = [];
+  let d = addDays(TODAY, -364);
+  // auf Montag ausrichten
+  while (d.getDay() !== 1) d = addDays(d, -1);
+  for (let wI = 0; wI < 53; wI++) {
+    const col = [];
+    for (let dI = 0; dI < 7; dI++) {
+      const cd = addDays(d, wI * 7 + dI);
+      const k = iso(cd);
+      col.push(k <= iso(TODAY) ? { k, ...(heat.get(k) || { cls: 'empty', label: 'Kein Dienst' }) } : null);
+    }
+    weeks.push(col);
+  }
+  const CELL = { empty: 'hm-empty', quiet: 'hm-quiet', alarm: 'hm-alarm', extra: 'hm-extra', exam: 'hm-exam', absent: 'hm-absent' };
+  const grid = weeks.map(col => `<div class="hm-col">${col.map(c => c
+    ? `<span class="hm-cell ${CELL[c.cls]}" title="${c.k} – ${esc(c.label)}" data-hmd="${c.k}"></span>` : '<span class="hm-cell hm-future"></span>').join('')}</div>`).join('');
+  const legend = `<div class="hm-legend"><span><i class="hm-cell hm-empty"></i>frei</span><span><i class="hm-cell hm-quiet"></i>Bereitschaft (kein Alarm)</span><span><i class="hm-cell hm-alarm"></i>Alarm/Springer-Einsatz</span><span><i class="hm-cell hm-extra"></i>Springer-Dienst</span><span><i class="hm-cell hm-exam"></i>Klausur/verhindert</span><span><i class="hm-cell hm-absent"></i>verpasst/offen</span></div>`;
+  // Verlaufsliste
+  const hist = [];
+  Object.entries(plan).sort((a, b) => b[0] < a[0] ? -1 : 1).forEach(([k, e]) => {
+    if (!(e.team || []).includes(id) && !(e.extra || []).includes(id)) return;
+    const ev = einsaetze.find(v => v.d === k);
+    hist.push({ k, e, ev });
+  });
+  const histHtml = hist.length ? hist.map(({ k, e, ev }) => {
+    const d = parse(k);
+    const extra = (e.extra || []).includes(id) && !(e.team || []).includes(id);
+    const kind = ev ? 'Alarm: ' + esc(ev.type || '') : extra ? 'Springer-Dienst' : 'Bereitschaft';
+    return `<div class="hist-row"><span class="dd"><b>${d.getDate()}</b><small>${MON3[d.getMonth()]}</small></span><div class="t"><span>${kind} · ${esc(e.note || '')}</span><small>${WDL[d.getDay()]}, ${d.getFullYear()}</small></div>${ev ? '<span class="badge">IST ' + (ev.ist ?? '?') + '</span>' : ''}</div>`;
+  }).join('') : '<p class="muted">Noch keine Schichten im Plan.</p>';
+  // AG-Strichliste
+  const agCount = Object.values(agAttendance).filter(ids => ids.includes(id)).length;
+  const agList = Object.keys(agAttendance).sort().reverse().slice(0, 8).map(k => {
+    const on = agAttendance[k].includes(id);
+    const d = parse(k);
+    return `<label class="c-box"><input type="checkbox" data-ag="${k}" ${on ? 'checked' : ''}><span>${fmtS(d)}</span></label>`;
+  }).join('') || '<p class="muted-s">Noch keine AG-Treffen erfasst.</p>';
+  const qualiBadge = { ausb: '<span class="badge">AUSB</span>', ausbildung: '<span class="badge warn">In Ausbildung</span>', helfer: '<span class="badge spr">Helfer</span>' }[x.quali || (x.ausb ? 'ausb' : 'helfer')] || '';
+  openModal(`<div class="p-head">${av(x)}<div><h3 id="mTitle">${esc(fullName(x))} ${qualiBadge}${x.springer ? '<span class="badge spr">Springer</span>' : ''}</h3>
+      <p class="muted-s">Klasse ${esc(x.cls)} · ${x.team != null ? 'Team ' + x.team : 'ohne Team'}${x.ausbildungsDatum ? ' · AUSB seit ' + fmtS(parse(x.ausbildungsDatum)) : ''}${x.kontakt ? ' · ' + esc(x.kontakt) : ''}</p></div></div>
+    <div class="kpi-grid">
+      <div><b>${p.duties ?? 0}</b><span>Dienste</span></div>
+      <div><b>${p.alarms ?? 0}</b><span>Alarms</span></div>
+      <div><b>${p.Q == null ? '–' : p.Q + '%'}</b><span>Q<sub>i</sub> Alarmquote</span></div>
+      <div><b>${p.S == null ? '–' : p.S}</b><span>S<sub>i</sub> Dienstquote</span></div>
+      <div><b>${p.daysSinceLast == null ? '–' : p.daysSinceLast}</b><span>Tage seit Dienst</span></div>
+      <div><b>${agCount}</b><span>AG-Treffen</span></div>
+    </div>
+    <div class="sub-h">Aktivität (12 Monate)</div>
+    <div class="heatmap" role="img" aria-label="Aktivitäts-Heatmap">${grid}</div>${legend}
+    <div class="sub-h">Verlauf</div>
+    <div class="hist">${histHtml}</div>
+    <div class="sub-h">AG-Anwesenheit (Strichliste)</div>
+    <div class="ag-box"><div class="ag-days">${agList}</div>
+      <div class="form-row" style="margin-top:8px">
+        <button class="btn ghost" id="agTodayBtn"><i data-lucide="calendar-plus"></i>Heute als AG-Treff erfassen</button>
+        <button class="btn primary" id="certBtn"><i data-lucide="file-badge"></i>Zeugnis-Bescheinigung (PDF)</button>
+      </div>
+    </div>
+    <div class="modal-actions"><button class="btn ghost" data-close>Schließen</button></div>`, { wide: true });
+  $$('[data-ag]').forEach(cb => cb.onchange = () => {
+    const k = cb.dataset.ag; agAttendance[k] = agAttendance[k] || [];
+    if (cb.checked) { if (!agAttendance[k].includes(id)) agAttendance[k].push(id); }
+    else agAttendance[k] = agAttendance[k].filter(v => v !== id);
+    save();
+  });
+  $('#agTodayBtn').onclick = () => {
+    const k = iso(TODAY);
+    agAttendance[k] = agAttendance[k] || [];
+    if (!agAttendance[k].includes(id)) agAttendance[k].push(id);
+    save(); toast('AG-Treffen erfasst'); openMemberProfile(id);
+  };
+  $('#certBtn').onclick = () => generateCertificate(x, p, agCount);
+  icons();
+}
+function generateCertificate(x, p, agCount) {
+  if (!window.jspdf) { toast('PDF-Bibliothek nicht geladen', true); return; }
+  const doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const schoolYear = TODAY.getMonth() >= 7 ? `${TODAY.getFullYear()}/${TODAY.getFullYear() + 1}` : `${TODAY.getFullYear() - 1}/${TODAY.getFullYear()}`;
+  doc.setFillColor(39, 39, 39); doc.rect(0, 0, 297, 34, 'F');
+  doc.setTextColor(200, 168, 246); doc.setFontSize(11); doc.text('SaniAlarm · Schulsanitätsdienst', 20, 15);
+  doc.setTextColor(255); doc.setFontSize(20); doc.text('Tätigkeitsbescheinigung', 20, 26);
+  doc.setTextColor(21); doc.setFontSize(13); doc.text(`${x.first} ${x.last}` + (x.cls ? ` (Klasse ${x.cls})` : ''), 20, 52);
+  doc.setFontSize(11);
+  const line1 = `Hat im Schuljahr ${schoolYear} aktiv im Schulsanitätsdienst mitgewirkt`;
+  const line2 = `(${p.duties || 0} Schichten, ${p.alarms || 0} Notfalleinsätze, ${agCount} AG-Treffen).`;
+  doc.text(line1, 20, 66); doc.text(line2, 20, 74);
+  doc.setFontSize(9); doc.setTextColor(120);
+  doc.text(`Ausgestellt am ${TODAY.toLocaleDateString('de-DE')} · SaniAlarm Schichtplaner`, 20, 180);
+  doc.save(`Bescheinigung-${x.first}-${x.last}.pdf`);
+  toast('Bescheinigung erstellt');
+}
 
 /* ---------- Schicht nachtragen: Person / Team (+ Abweichung) ---------- */
 let shiftMode = 'person', shiftDeviation = false, shiftExtras = [];

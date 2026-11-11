@@ -29,7 +29,9 @@ const BTYPES = {
 };
 const DEFAULT_LOCATION = 'Sanitätsraum B014';
 const DEFAULT_SHIFT_TIME = '09:30 – 09:50';
-const DEFAULT_SETTINGS = { perShift: 2, fair: true, weekday: true, friMon: true, notify: true, me: 0 };
+const DEFAULT_SETTINGS = { perShift: 2, fair: true, weekday: true, friMon: true, notify: true, me: 0,
+  // Fairness-Engine: Gewichte des Multi-Faktor-Scores P_i
+  wF: 0.35, wR: 0.25, wS: 0.20, wK: 0.10, wT: 0.10, vkGoal: 15 };
 const DEFAULT_INVENTORY = {
   coolpack: { label: 'Kühlpacks (Sofort-Kälte)', count: 24, warnAt: 5 },
   bandage: { label: 'Mullbinden / Fixierbinden', count: 30, warnAt: 6 },
@@ -96,6 +98,7 @@ const fairnessOf = SS.fairness;
 /* ---------- State ---------- */
 let members = [], blocks = [], plan = {}, einsaetze = [], settings = { ...DEFAULT_SETTINGS };
 let dayModes = {}, inventory = { ...DEFAULT_INVENTORY };
+let agAttendance = {}; // { 'YYYY-MM-DD': [memberIds] } – AG-Treffen-Strichliste
 let lastSaved = null, byId = new Map(), prevPlan = null;
 
 const reindex = () => { byId = new Map(members.map(x => [x.id, x])); };
@@ -109,8 +112,12 @@ const nextMemberId = () => members.reduce((a, x) => Math.max(a, x.id), -1) + 1;
 
 /* ---------- Persistenz (.saniteam, .saniplan, .sanilog, .saniblocks) ---------- */
 function cleanMember(x) {
-  const { id, first = '', last = '', cls = '', ausb = false, springer = false, available = true, total = 0, year = 0, month = 0, team = null } = x;
-  return { id, first, last, cls: String(cls).toLowerCase(), ausb: !!ausb, springer: !!springer, available: !!available, total: Number(total) || 0, year: Number(year) || 0, month: Number(month) || 0, team: team == null ? null : Number(team), stufe: parseInt(cls) || 0 };
+  const { id, first = '', last = '', cls = '', ausb = false, springer = false, available = true, total = 0, year = 0, month = 0, team = null,
+    quali = null, ausbildungsDatum = null, kontakt = '' } = x;
+  // Qualifikations-Level: 'ausb' | 'ausbildung' | 'helfer' (abwärtskompatibel aus ausb-Flag)
+  const qualiLevel = quali || (ausb ? 'ausb' : 'helfer');
+  return { id, first, last, cls: String(cls).toLowerCase(), ausb: !!ausb, springer: !!springer, available: !!available, total: Number(total) || 0, year: Number(year) || 0, month: Number(month) || 0, team: team == null ? null : Number(team), stufe: parseInt(cls) || 0,
+    quali: qualiLevel, ausbildungsDatum: ausbildungsDatum || null, kontakt: String(kontakt || '') };
 }
 
 function snapshot(kind = 'all') {
@@ -132,7 +139,7 @@ function snapshot(kind = 'all') {
   // Standard-Komplett-Backup (.saniteam)
   return { app: 'SaniAlarm', format: 'saniteam', type: 'all', version: 2, exportedAt: ts,
     members: members.map(({ id, first, last, cls, ausb, springer, available, total, year, month, team }) => ({ id, first, last, cls, ausb, springer, available, total, year, month, team })),
-    blocks, plan, history: einsaetze, settings, dayModes, inventory };
+    blocks, plan, history: einsaetze, settings, dayModes, inventory, agAttendance };
 }
 
 function detectFormat(data) {
@@ -257,6 +264,7 @@ function seed() {
 function emptyDb() {
   members = []; blocks = []; plan = {}; einsaetze = []; settings = { ...DEFAULT_SETTINGS, me: null };
   dayModes = {}; inventory = JSON.parse(JSON.stringify(DEFAULT_INVENTORY));
+  agAttendance = {};
   reindex();
 }
 
@@ -381,7 +389,8 @@ function dissolveTeam(tid) { members.forEach(x => { if (x.team === tid) x.team =
 /* ---------- Mitglieder-CRUD ---------- */
 function upsertMember(data, id) {
   const clean = { first: data.first.trim(), last: data.last.trim(), cls: data.cls.trim().toLowerCase(),
-    ausb: !!data.ausb, springer: !!data.springer, available: !!data.available };
+    ausb: !!data.ausb, springer: !!data.springer, available: !!data.available,
+    quali: data.quali || null, ausbildungsDatum: data.ausbildungsDatum || null, kontakt: String(data.kontakt || '') };
   clean.stufe = parseInt(clean.cls) || 0;
   // Oberstufen-Stufe (Q1-Q4) als 11-14 abbilden
   const q = clean.cls.match(/^q([1-4])$/);

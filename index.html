@@ -196,16 +196,24 @@
     <!-- STATISTIK -->
     <section class="screen" id="s-stats" aria-label="Statistik">
       <header class="page-head">
-        <div><h1>Statistik</h1><p class="sub">Belastung und Fairness der Sanis</p></div>
-        <div class="chips" id="tf" role="group" aria-label="Zeitraum">
-          <button class="fchip" aria-pressed="true" data-tf="total">Alles</button>
-          <button class="fchip" aria-pressed="false" data-tf="year">Dieses Jahr</button>
-          <button class="fchip" aria-pressed="false" data-tf="month">Dieser Monat</button>
-        </div>
+        <div><h1>Statistik & Fairness</h1><p class="sub">Kennzahlen, Verteilung und Regel-Metriken</p></div>
       </header>
+      <div class="chips" id="tf" role="group" aria-label="Zeitraum">
+        <button class="fchip" aria-pressed="false" data-tf="month">Dieser Monat</button>
+        <button class="fchip" aria-pressed="false" data-tf="term">Dieses Schuljahr</button>
+        <button class="fchip" aria-pressed="false" data-tf="90">Letzte 90 Tage</button>
+        <button class="fchip" aria-pressed="true" data-tf="total">Gesamt</button>
+      </div>
+      <div class="chips" id="mv" role="group" aria-label="Metrik" style="margin-top:6px">
+        <button class="fchip" aria-pressed="true" data-mv="ready">Bereitschaften</button>
+        <button class="fchip" aria-pressed="false" data-mv="alarm">Tatsächliche Einsätze</button>
+        <button class="fchip" aria-pressed="false" data-mv="fair">Gesamtindex (Fairness-bereinigt)</button>
+      </div>
       <div class="stats" id="summary"></div>
       <div class="stats-grid">
-        <div class="card"><div class="card-head"><h2>Belastungsindex</h2><span class="muted-s">relativ zum Ø (100 %)</span></div><div class="bars" id="bars"></div></div>
+        <div class="card"><div class="card-head"><h2>Belastungsverteilung</h2><span class="muted-s">Ø = 100 % · VK-Ziel &lt; 15 %</span></div><div class="bars" id="bars"></div>
+          <p class="muted-s" style="margin-top:8px">Auf eine Person klicken für das Aktivitäts-Profil (Heatmap & Verlauf).</p>
+        </div>
         <div class="side-col">
           <div class="card"><div class="card-head"><h2>Schicht nachtragen</h2></div>
             <form class="form" id="addShift">
@@ -243,6 +251,7 @@
 <div class="toast" id="toast" role="status"><i data-lucide="circle-check"></i><span></span></div>
 
 <script src="js/solver.js"></script>
+<script src="js/metrics.js"></script>
 <script src="js/core.js"></script>
 <script src="js/ui.js"></script>
 </body>

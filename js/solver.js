@@ -109,6 +109,7 @@
   function solveMonth(o) {
     const t0 = Date.now();
     const { year, month, members, blocks, settings, today } = o;
+    const einsaetzeRef = o.einsaetze || [];
     const plan = o.plan || {};
     const dayModes = o.dayModes || {};
     const defaultPer = Math.max(1, settings.perShift | 0);
@@ -171,6 +172,46 @@
     // bereits bestehende Einträge außerhalb des Lösungsraums (Vergangenheit, Nachbarmonate) wirken als Randbedingung
     Object.entries(plan).forEach(([k, e]) => { if (!solveKeys.has(k)) apply(e, meta(parse(k)), 1); });
 
+    /* --- Multi-Faktor-Score P_i = wF*F + wR*R + wS*S + wK*K + wT*T (Gewichte aus Settings) --- */
+    const W = { f: settings.wF ?? 0.35, r: settings.wR ?? 0.25, s: settings.wS ?? 0.20, k: settings.wK ?? 0.10, t: settings.wT ?? 0.10 };
+    const todayTs = +today;
+    // Historische Daten pro Person: letzte Dienst-Tage + Springer-Einsätze + Sperrtage (Klausurdruck)
+    const lastDuty = new Map(), sprCount = new Map();
+    members.forEach(mm => { lastDuty.set(mm.id, null); sprCount.set(mm.id, 0); });
+    Object.entries(plan).forEach(([k, e]) => {
+      if (k >= todayK) return;
+      const d = parse(k);
+      (e.team || []).forEach(id => { const cur = lastDuty.get(id); if (!cur || k > cur) lastDuty.set(id, k); });
+    });
+    (einsaetzeRef || []).forEach(ev => { (ev.extra || []).forEach(id => sprCount.set(id, (sprCount.get(id) || 0) + 1)); });
+    const maxTotal = Math.max(1, ...members.map(mm => mm.total || 0));
+    // Klausurdruck pro Person vorberechnen (nächste 14 Tage)
+    const examAhead = new Map();
+    if (!o.ignoreBlocks) members.forEach(mm => {
+      let n = 0;
+      for (let i = 0; i <= 14; i++) {
+        const d = addDays(today, i);
+        if (!isSchool(d)) continue;
+        if (blockedMap(d, blocks, members).has(mm.id)) n++;
+      }
+      examAhead.set(mm.id, n);
+    });
+    function piScore(id) {
+      const mm = byId.get(id) || {};
+      const F = (mm.total || 0) / maxTotal;
+      const ld = lastDuty.get(id);
+      const R = ld ? Math.min(1, (todayTs - +parse(ld)) / (14 * 864e5)) : 1;
+      // Klausurdruck: Sperrtage in den nächsten 14 Tagen (vorberechnet pro Person)
+      const S = Math.min(1, (examAhead.get(id) || 0) / 5);
+      const K = Math.min(1, (sprCount.get(id) || 0) / 5);
+      const base = mm.total || 0;
+      const prev30 = members.reduce((a, x) => a + (x.total || 0), 0) / (members.length || 1);
+      const T = prev30 ? Math.min(2, base / prev30) / 2 : 1;
+      return W.f * F + W.r * R + W.s * S + W.k * K + W.t * T;
+    }
+    const piCache = new Map();
+    const pi = id => { if (!piCache.has(id)) piCache.set(id, piScore(id)); return piCache.get(id); };
+
     /* --- Domäne eines Tages unter dem aktuellen Zustand --- */
     function options(day) {
       if (day.modeKey === 'free') {
@@ -202,8 +243,8 @@
           }
         }
         cost += missing * PEN.missing;
-        cost += 0.8 * get(U.cnt, t.id);                                   // konvex → gleichmäßige Rotation
-        if (settings.fair) cost += Math.max(0, loadOf(t.ids) - minLoad) * 0.05; // Fairness über Gesamtdienste
+        // Fairness: durchschnittlicher P_i-Score des Teams (dezent skaliert, Regelkosten dominieren)
+        cost += t.ids.reduce((a, id) => a + pi(id), 0) / Math.max(1, t.ids.length) * 8;
         cost += ((t.id * 7 + day.d.getDate()) % 11) * 0.001;               // deterministischer Tie-Break
         out.push({ team, teamId: t.id, extra, viol, missing, cost, sprOnly: false });
       }
