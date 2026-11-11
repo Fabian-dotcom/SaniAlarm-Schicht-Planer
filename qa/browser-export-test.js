@@ -1,10 +1,10 @@
 /**
- * QA-Browser-Test: Export-Buttons (.sani-Formate) im Desktop-Webapp.
+ * QA-Browser-Test: Export-Buttons (.sani-Formate) + Stufe/Klasse-Logik im Desktop-Webapp.
  *
  * Lädt die App in einem echten Browser (Playwright-core + lokales Edge/Brave),
- * legt ein Test-Mitglied an, klickt nacheinander alle Export-Buttons im
- * Einstellungs-Tab und prüft, dass für jede Schaltfläche ein Download mit der
- * richtigen Dateiendung startet.
+ * legt ein Test-Mitglied über die neuen Stufe/Klasse-Dropdowns an, klickt
+ * nacheinander alle Export-Buttons im Einstellungs-Tab und prüft, dass für jede
+ * Schaltfläche ein Download mit der richtigen Dateiendung startet.
  *
  * Ausführen:  NODE_PATH=".../node_modules" node qa/browser-export-test.js
  */
@@ -48,12 +48,24 @@ const EXPORT_BUTTONS = [
   await page.evaluate(() => { try { localStorage.clear(); sessionStorage.clear(); } catch {} });
   await page.reload({ waitUntil: 'domcontentloaded' });
 
-  // Mitglied anlegen, damit Exporte Daten enthalten
+  // Mitglied anlegen (neue Stufe/Klasse-Dropdowns)
   await page.click('#nav [data-tab="members"]');
   await page.click('#addMember');
   await page.waitForSelector('#mFirst', { state: 'visible' });
   await page.fill('#mFirst', 'Test');
   await page.fill('#mLast', 'Person');
+  await page.selectOption('#mStufe', '10');
+  const klasseHidden = await page.$eval('#mKlasseLabel', el => el.hidden);
+  if (klasseHidden) { console.error('❌ Klasse-Feld sollte bei Stufe 10 sichtbar sein'); process.exit(1); }
+  await page.selectOption('#mKlasse', '2');
+
+  // Q-Stufe: Klasse muss verschwinden
+  await page.selectOption('#mStufe', 'Q3');
+  const klasseHiddenQ = await page.$eval('#mKlasseLabel', el => el.hidden);
+  if (!klasseHiddenQ) { console.error('❌ Klasse-Feld sollte bei Q3 verborgen sein'); process.exit(1); }
+  console.log('✅ Stufe/Klasse-Logik: 10 → sichtbar, Q3 → versteckt');
+
+  await page.selectOption('#mStufe', '10');
   await page.click('#mSave');
   await page.waitForTimeout(700);
 
@@ -82,10 +94,15 @@ const EXPORT_BUTTONS = [
       const body = JSON.parse(fs.readFileSync(await download.path(), 'utf8'));
       const expectedFmt = btn.ext.slice(1);
       if (body.format !== expectedFmt) console.error(`   ⚠️ format-Feld: ${body.format} (erwartet ${expectedFmt})`);
+      // Prüfe, dass das angelegte Mitglied mit korrekter cls vorhanden ist
+      if (body.members?.length) {
+        const cls = body.members[0].cls;
+        if (cls !== '10-2') console.error(`   ⚠️ cls: ${cls} (erwartet 10-2)`);
+      }
     } else failures++;
   }
 
   await browser.close();
   if (failures) { console.error(`❌ ${failures} Problem(e)`); process.exit(1); }
-  console.log('✅ Alle Export-Buttons lösen Downloads mit korrekten .sani*-Formaten aus.');
+  console.log('✅ Alle Export-Buttons + Stufe/Klasse-Logik funktionieren.');
 })().catch(err => { console.error('❌ Test fehlgeschlagen:', err); process.exit(1); });

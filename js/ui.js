@@ -188,7 +188,7 @@ function renderCal() {
 }
 
 function blockRow(b) {
-  const n = affected(b.scope).length, t = BTYPES[b.type] || BTYPES.Abwesend;
+  const n = affected(b.scope).length, t = BTYPES[b.type] || BTYPES.Verhindert;
   return `<div class="blk"><span class="ico"><i data-lucide="${t.icon}"></i></span><div class="t">${esc(b.type)} · ${esc(b.title)}<small>${esc(scopeLabel(b.scope))} · ${n} Sanis · ${rangeLabel(b)}</small></div>
     <button class="icon-btn del" data-del-block="${b.id}" aria-label="Sperrtag ${esc(b.title)} löschen"><i data-lucide="trash-2"></i></button></div>`;
 }
@@ -337,6 +337,18 @@ function openMember(id) {
   partnerQuery = ''; partnerOpen = false;
   mdraft = id == null ? { first: '', last: '', cls: '', ausb: false, springer: false, available: true }
     : (({ first, last, cls, ausb, springer, available }) => ({ first, last, cls, ausb, springer, available }))(m(id));
+  // Stufe/Klasse aus gespeicherter cls ableiten (z. B. "10-2" → Stufe 10, Klasse 2; "q3" → Q3)
+  const splitCls = c => {
+    const s = String(c || '').toLowerCase();
+    const q = s.match(/^q([1-4])/);
+    if (q) return { stufe: 'Q' + q[1], klasse: '' };
+    const mm = s.match(/^(1[0-3])(?:-(\d))?$/);
+    if (mm) return { stufe: mm[1], klasse: mm[2] || '' };
+    const u = s.match(/^(7|8|9)(?:-(\d))?$/);
+    if (u) return { stufe: u[1], klasse: u[2] || '' };
+    return { stufe: '', klasse: '' };
+  };
+  mdraft.stufeKlasse = splitCls(mdraft.cls);
   const draw = () => {
     const x = id != null ? m(id) : null;
     const mates = x ? teamMates(x) : [], teamIds = x ? [x.id, ...mates.map(y => y.id)] : [];
@@ -345,7 +357,14 @@ function openMember(id) {
     openModal(`<div class="p-head">${x ? av(x) : ''}<div><h3 id="mTitle">${x ? esc(fullName(x)) : 'Mitglied hinzufügen (Schnelleingabe)'}</h3>${x ? `<p class="muted-s">${x.total} Dienste gesamt · ${x.year} dieses Jahr</p>` : '<p class="lead" style="margin-bottom:8px">Neuen Schulsanitäter direkt erfassen und zur Kartei hinzufügen.</p>'}</div></div>
       <div class="form-row" style="margin-top:12px"><label>Vorname *<input class="inp" id="mFirst" value="${esc(mdraft.first)}" placeholder="z. B. Max" autocomplete="off" autofocus></label>
         <label>Nachname (optional)<input class="inp" id="mLast" value="${esc(mdraft.last)}" placeholder="z. B. Mustermann" autocomplete="off"></label>
-        <label style="max-width:130px">Klasse / Stufe<input class="inp" id="mCls" value="${esc(mdraft.cls)}" placeholder="10a" maxlength="3" autocomplete="off"></label></div>
+        <label>Stufe<span class="select"><label class="sr-only" for="mStufe">Stufe</label><select class="inp" id="mStufe">
+            <option value="" disabled ${mdraft.stufeKlasse.stufe ? '' : 'selected'}>Stufe …</option>
+            ${['7','8','9','10','Q1','Q2','Q3','Q4'].map(s => `<option value="${s}" ${mdraft.stufeKlasse.stufe === s ? 'selected' : ''}>${s}</option>`).join('')}
+          </select><i data-lucide="chevron-down"></i></span></label>
+        <label id="mKlasseLabel" ${mdraft.stufeKlasse.klasse === undefined || /^Q/.test(mdraft.stufeKlasse.stufe) ? 'hidden' : ''}>Klasse<span class="select"><label class="sr-only" for="mKlasse">Klasse</label><select class="inp" id="mKlasse">
+            <option value="" disabled ${mdraft.stufeKlasse.klasse ? '' : 'selected'}>Klasse …</option>
+            ${['1','2','3','4'].map(k => `<option value="${k}" ${mdraft.stufeKlasse.klasse === k ? 'selected' : ''}>${k}</option>`).join('')}
+          </select><i data-lucide="chevron-down"></i></span></label></div>
       ${sw('available', 'Verfügbar', 'Aus = krank/abwesend, wird nicht eingeplant')}
       ${sw('ausb', 'Ausgebildet (AUSB)', 'Sanitätsausbildung abgeschlossen – jedes Team braucht mindestens eine Person')}
       ${sw('springer', 'Springer', 'Springt bei Unterbesetzung ein')}
@@ -355,13 +374,22 @@ function openMember(id) {
         ${mates.length && !teamHasAusb(teamIds) ? `<div class="alert"><i data-lucide="octagon-alert"></i><span>Team ohne ausgebildete Person – der Algorithmus plant es nicht ein.</span></div>` : ''}
         ${mates.length < 2 ? `<button class="btn ghost wide" id="addPartner" style="margin-top:8px" aria-expanded="${partnerOpen}"><i data-lucide="user-plus"></i>Partner hinzufügen</button>
           ${partnerOpen ? `<div class="search" style="margin:8px 0 0;max-width:none"><i data-lucide="search"></i><label class="sr-only" for="pq">Partner suchen</label><input id="pq" type="search" placeholder="Name oder Klasse" value="${esc(partnerQuery)}" autocomplete="off"></div><div class="picker" id="pPicker">${pickerHTML(x)}</div>` : ''}` : ''}
-        <div class="sub-h" style="margin-top:18px">Sperrtage &amp; Klausuren <small>${myBlocks.length} anstehend</small></div>
+        <div class="sub-h" style="margin-top:18px">Sperrtage &amp; Verhinderungen <small>${myBlocks.length} anstehend</small></div>
         <div style="margin-top:8px">${myBlocks.map(blockRow).join('') || '<p class="muted">Keine anstehenden Sperrtage.</p>'}</div>
-        <button class="btn ghost wide" data-new-block-person="${x.id}"><i data-lucide="calendar-x"></i>Sperrtag / Klausur eintragen</button>`
-      : `<p class="muted-s" style="margin-top:14px">Tipp: Teampartner und individuelle Sperrtage können direkt nach dem Anlegen hier vergeben werden.</p>`}
+        <button class="btn ghost wide" data-new-block-person="${x.id}"><i data-lucide="calendar-x"></i>Sperrtag eintragen (Person/Team verhindert)</button>`
+      : `<p class="muted-s" style="margin-top:14px">Tipp: Nach dem Anlegen kannst du hier Teampartner und individuelle Sperrtage eintragen (an denen die Person oder ihr Team verhindert ist).</p>`}
       <div class="modal-actions">${x ? `<button class="btn danger" id="mDel" style="margin-right:auto"><i data-lucide="trash-2"></i>Löschen</button>` : ''}
         <button class="btn ghost" data-close>Abbrechen</button><button class="btn primary" id="mSave"><i data-lucide="check"></i>${x ? 'Speichern' : 'Hinzufügen'}</button></div>`, { refresh: draw });
-    $('#mFirst').oninput = e => mdraft.first = e.target.value; $('#mLast').oninput = e => mdraft.last = e.target.value; $('#mCls').oninput = e => mdraft.cls = e.target.value;
+    $('#mFirst').oninput = e => mdraft.first = e.target.value; $('#mLast').oninput = e => mdraft.last = e.target.value;
+    // Stufe/Klasse-Dropdowns: Q1-Q4 haben keine Klassen
+    const syncKlasseVisibility = () => {
+      const isQ = /^Q/.test(mdraft.stufeKlasse.stufe);
+      const lab = $('#mKlasseLabel');
+      if (lab) lab.hidden = isQ;
+      if (isQ) mdraft.stufeKlasse.klasse = '';
+    };
+    $('#mStufe').onchange = e => { mdraft.stufeKlasse.stufe = e.target.value; syncKlasseVisibility(); };
+    $('#mKlasse').onchange = e => { mdraft.stufeKlasse.klasse = e.target.value; };
     $$('[data-mset]').forEach(b => b.onclick = () => { const k = b.dataset.mset; mdraft[k] = !mdraft[k]; b.setAttribute('aria-checked', mdraft[k]); });
     $$('[data-partner]').forEach(b => b.onclick = () => { const p = m(+b.dataset.partner); if (linkPartner(x, p)) { partnerOpen = false; partnerQuery = ''; save(); renderAll(); draw(); toast(`${x.first} & ${p.first} sind jetzt ein Team`); } });
     $$('[data-unpartner]').forEach(b => b.onclick = () => { const p = m(+b.dataset.unpartner); unlinkPartner(p); save(); renderAll(); draw(); toast(`${p.first} aus dem Team entfernt`); });
@@ -370,10 +398,15 @@ function openMember(id) {
     $('#mSave').onclick = () => {
       const first = mdraft.first.trim();
       const last = mdraft.last.trim();
-      const cls = mdraft.cls.trim();
+      const stufe = (mdraft.stufeKlasse?.stufe || '').trim();
+      const klasse = (mdraft.stufeKlasse?.klasse || '').trim();
       if (!first) { toast('Bitte mindestens einen Vornamen angeben', true); $('#mFirst')?.focus(); return; }
-      if (cls && !/^\d{1,2}[a-zA-Z]?$/.test(cls)) { toast('Klasse z. B. als 10a, 9b oder 8 angeben (oder leer lassen)', true); $('#mCls')?.focus(); return; }
-      const cleanData = { ...mdraft, first, last: last || '-', cls: cls || '10a' };
+      if (!stufe) { toast('Bitte eine Stufe wählen', true); $('#mStufe')?.focus(); return; }
+      const isQ = /^Q/.test(stufe);
+      if (!isQ && !klasse) { toast('Bitte eine Klasse (1–4) wählen', true); $('#mKlasse')?.focus(); return; }
+      // Klasse im Format "Stufe-Klasse" (z. B. 10-2) bzw. nur Stufe bei Q1-Q4
+      const cls = isQ ? stufe.toLowerCase() : `${stufe}-${klasse}`.toLowerCase();
+      const cleanData = { ...mdraft, first, last: last || '-', cls };
       const saved = upsertMember(cleanData, id);
       renderAll();
       if (id == null) { toast(`${saved.first} angelegt`); openMember(saved.id); } else { closeModal(); toast('Änderungen gespeichert'); }
@@ -395,7 +428,7 @@ function openBlockModal({ date, personId } = {}) {
   const d = date || iso(selected >= TODAY ? selected : TODAY), p = personId != null ? m(personId) : null;
   const defaultCls = CLASSES()[0] || '';
   draft = {
-    type: 'Klausur',
+    type: 'Verhindert',
     title: '',
     from: d,
     to: d,
@@ -405,10 +438,10 @@ function openBlockModal({ date, personId } = {}) {
     q: '',
     returnTo: personId
   };
-  openModal(`<h3 id="mTitle">Sperre / Stundenblock eintragen</h3>
-    <p class="lead">Sperrt Personen ganztägig oder stundenweise (z. B. Klausur in 3. Stunde) rechtssicher vor Alarmen und Diensten.</p>
+  openModal(`<h3 id="mTitle">Sperrtag eintragen</h3>
+    <p class="lead">Sperrt eine Person oder ihr gesamtes Team an bestimmten Tagen (Verhinderung, Krankheit, Termin). Klausuren &amp; Klassenarbeiten werden separat über „Klausurplan“ gepflegt.</p>
     <span class="form-label">Art</span><div class="chips" role="group" aria-label="Art">${Object.keys(BTYPES).map(t => `<button class="fchip" aria-pressed="${t === draft.type}" data-bt="${t}"><i data-lucide="${BTYPES[t].icon}"></i>${t}</button>`).join('')}</div>
-    <label><span class="form-label">Bezeichnung</span><input class="inp" id="bTitle" placeholder="z. B. Mathe-Klausur, Arzttermin" autocomplete="off"></label>
+    <label><span class="form-label">Bezeichnung</span><input class="inp" id="bTitle" placeholder="z. B. Arzttermin, Krankheit, Klassenfahrt" autocomplete="off"></label>
     <div class="form-row">
       <label><span class="form-label">Von</span><input class="inp" type="date" id="bFrom" value="${draft.from}"></label>
       <label><span class="form-label">Bis</span><input class="inp" type="date" id="bTo" value="${draft.to}"></label>
@@ -439,7 +472,7 @@ function openBlockModal({ date, personId } = {}) {
 }
 function renderScope() {
   const el = $('#bScope');
-  if (draft.kind === 'stufe') el.innerHTML = `<div class="chips">${[8, 9, 10, 11, 12].map(s => `<button class="fchip" aria-pressed="${+draft.value === s}" data-sv="${s}">Stufe ${s}</button>`).join('')}</div>`;
+  if (draft.kind === 'stufe') el.innerHTML = `<div class="chips">${[[7,'7'],[8,'8'],[9,'9'],[10,'10'],[11,'Q1'],[12,'Q2'],[13,'Q3'],[14,'Q4']].map(([s,l]) => `<button class="fchip" aria-pressed="${+draft.value === s}" data-sv="${s}">Stufe ${l}</button>`).join('')}</div>`;
   else if (draft.kind === 'class') el.innerHTML = `<div class="chips">${CLASSES().map(c => `<button class="fchip" aria-pressed="${draft.value === c}" data-sv="${c}">${esc(c)}</button>`).join('')}</div>`;
   else el.innerHTML = `<div class="search" style="margin-bottom:8px;max-width:none"><i data-lucide="search"></i><label class="sr-only" for="bq">Personen suchen</label><input id="bq" type="search" placeholder="Personen suchen" autocomplete="off" value="${esc(draft.q)}"></div><div class="picker" id="bPeople"></div>`;
   $$('[data-sv]').forEach(b => b.onclick = () => { draft.value = draft.kind === 'stufe' ? +b.dataset.sv : b.dataset.sv; $$('[data-sv]').forEach(x => x.setAttribute('aria-pressed', x === b)); renderAffect(); });
@@ -553,7 +586,7 @@ function makePdf(y, mo) {
     doc.setFontSize(8); doc.setTextColor(st[2]); doc.text(String(st[0]), 180, yy + 5.6, { align: 'center' });
     yy += 9;
   });
-  doc.setFontSize(8); doc.setTextColor(150); doc.text(`Erstellt am ${TODAY.toLocaleDateString('de-DE')} mit SaniAlarm · Klausuren & Sperrtage berücksichtigt`, 16, 288);
+  doc.setFontSize(8); doc.setTextColor(150); doc.text(`Erstellt am ${TODAY.toLocaleDateString('de-DE')} mit SaniAlarm · Sperrtage & Verhinderungen berücksichtigt`, 16, 288);
   deliver(doc.output('blob'), `Dienstplan-${MONTHS[mo]}-${y}.pdf`);
 }
 async function makePng(y, mo) {
@@ -828,7 +861,7 @@ function renderExams() {
     return `<div class="exam"><div class="dd"><b>${d.getDate()}</b><span>${MON3[d.getMonth()]}</span></div>
       <div class="inf"><div>${esc(b.type)} · ${esc(b.title)} · ${esc(scopeLabel(b.scope))}</div><div>Betroffen: ${esc(ids.slice(0, 3).map(id => m(id).first).join(', '))}${ids.length > 3 ? ` +${ids.length - 3}` : ''}</div></div>
       <span class="status-pill ${ids.length > 2 ? 'bad' : 'warn'}">${ids.length}</span></div>`; }).join('') || '<p class="muted">Keine Sperrtage in den nächsten 2 Monaten.</p>')
-    + `<button class="btn ghost wide" style="margin-top:10px" data-new-block=""><i data-lucide="plus"></i>Sperrtag / Klausur eintragen</button>`;
+    + `<button class="btn ghost wide" style="margin-top:10px" data-new-block=""><i data-lucide="plus"></i>Sperrtag eintragen</button>`;
 }
 
 /* ---------- Einstellungen & Daten ---------- */
