@@ -11,6 +11,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
 <link rel="stylesheet" href="css/app.css">
+<link rel="manifest" href="manifest.json">
 </head>
 <body>
 <div class="app">
@@ -85,6 +86,7 @@
         <div class="select"><label class="sr-only" for="stufe">Stufe</label><select id="stufe"><option value="">Alle Stufen</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">Q1</option><option value="12">Q2</option><option value="13">Q3</option><option value="14">Q4</option></select><i data-lucide="chevron-down"></i></div>
         <button class="fchip" aria-pressed="false" data-filter="ausb">Ausgebildet</button>
         <button class="fchip" aria-pressed="false" data-filter="springer">Springer</button>
+        <button class="fchip" aria-pressed="false" data-filter="trainee">In Ausbildung</button>
         <button class="fchip" aria-pressed="false" data-filter="noteam">Ohne Team</button>
         <button class="fchip" aria-pressed="false" data-filter="off">Abwesend</button>
         <span class="muted-s" id="resultInfo" style="margin-left:auto"></span>
@@ -250,6 +252,13 @@
 <dialog id="modal" aria-labelledby="mTitle"><div class="modal-card" id="modalBody"></div></dialog>
 <div class="toast" id="toast" role="status"><i data-lucide="circle-check"></i><span></span></div>
 
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js')
+      .then(() => console.log('SaniAlarm Offline-Modus bereit!'))
+      .catch(err => console.error('SW Error:', err));
+  }
+</script>
 <script src="js/solver.js"></script>
 <script src="js/metrics.js"></script>
 <script src="js/core.js"></script>

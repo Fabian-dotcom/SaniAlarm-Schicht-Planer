@@ -31,7 +31,16 @@ const DEFAULT_LOCATION = 'Sanitätsraum B014';
 const DEFAULT_SHIFT_TIME = '09:30 – 09:50';
 const DEFAULT_SETTINGS = { perShift: 2, fair: true, weekday: true, friMon: true, notify: true, me: 0,
   // Fairness-Engine: Gewichte des Multi-Faktor-Scores P_i
-  wF: 0.35, wR: 0.25, wS: 0.20, wK: 0.10, wT: 0.10, vkGoal: 15 };
+  wF: 0.35, wR: 0.25, wS: 0.20, wK: 0.10, wT: 0.10, vkGoal: 15,
+  // AG-Treffen-Wochentag (1 = Montag)
+  agWeekday: 1,
+  // Maximalgröße einer Schicht (Soll + Springer + Auszubildende)
+  maxShift: 4,
+  // Ausbildung: Wie viele neue Leute pro erfahrenem Team (1-2)
+  traineesPerShift: 2,
+  // Normaler Schultag / Kurzstunden (Stunden-Raster, später für Zeitraster nutzbar)
+  schoolDay: [{ h: 1, von: '07:55', bis: '08:40' }, { h: 2, von: '08:45', bis: '09:30' }, { h: 3, von: '09:50', bis: '10:35' }, { h: 4, von: '10:40', bis: '11:25' }, { h: 5, von: '11:40', bis: '12:25' }, { h: 6, von: '12:30', bis: '13:15' }, { h: 7, von: '13:30', bis: '14:15' }],
+  schoolDayShort: [{ h: 1, von: '07:55', bis: '08:35' }, { h: 2, von: '08:40', bis: '09:20' }, { h: 3, von: '09:25', bis: '10:05' }, { h: 4, von: '10:15', bis: '10:55' }, { h: 5, von: '11:00', bis: '11:40' }, { h: 6, von: '11:45', bis: '12:25' }] };
 const DEFAULT_INVENTORY = {
   coolpack: { label: 'Kühlpacks (Sofort-Kälte)', count: 24, warnAt: 5 },
   bandage: { label: 'Mullbinden / Fixierbinden', count: 30, warnAt: 6 },
@@ -282,8 +291,12 @@ function boot() {
 
 /* ---------- Solver-Wrapper ---------- */
 function solve(y, mo, opts = {}) {
+  // Manuell gesetzte/markierte zukünftige Einträge vor dem Generator schützen
+  const protectedEntries = {};
+  Object.entries(plan).forEach(([k, e]) => { if (e.mark && k >= iso(TODAY)) protectedEntries[k] = e; });
   const r = SS.solveMonth({ year: y, month: mo, members, blocks, plan, settings, today: TODAY, dayModes, ...opts });
   Object.assign(plan, r.plan);
+  Object.entries(protectedEntries).forEach(([k, e]) => { plan[k] = e; });
   return r.stats;
 }
 

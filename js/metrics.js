@@ -128,6 +128,16 @@
         if (cls === 'absent') absentDays.push(rec);
         if (!lastShift || k > lastShift) lastShift = k;
       });
+      // Echte Einsätze aus dem Log (crew-Teilnahme) zählen zusätzlich:
+      (einsaetze || []).forEach(ev => {
+        if (ev.d < range.from || ev.d > range.to) return;
+        if (!(ev.crew || []).some(c => c.id === x.id)) return;
+        const plannedBefore = (ev.planned || []).includes(x.id);
+        if (!plannedBefore) { // Off-Duty + Alarm (Spontan-Springer)
+          const rec = { k: ev.d, type: 'offduty_alarm', ev };
+          alarms.push(rec); springerShifts.push(rec); duties.push(rec);
+        }
+      });
       // Echte Einsätze (aus Einsatz-Log) während eigener Bereitschaft
       const alarmCount = alarms.length;
       const dutyCount = duties.length;

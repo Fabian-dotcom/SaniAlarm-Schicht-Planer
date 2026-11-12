@@ -389,3 +389,12 @@ dialog::backdrop{background:rgba(0,0,0,.42);backdrop-filter:blur(2px)}
 .bar-row .idx small{display:block;color:var(--muted);font-size:.7rem;text-align:right}
 .seg button[aria-pressed="true"]{background:var(--lav);color:#151515}
 #mv{margin-bottom:10px}
+
+/* ---------- AG-Tages-Checkliste & Notfall-Rangliste ---------- */
+.ag-checkgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.ag-checkgrid .c-box span{display:flex;align-items:center;gap:8px}
+.rank{width:26px;height:26px;border-radius:50%;background:var(--soft);display:inline-grid;place-items:center;font-weight:700;font-size:.8rem;flex-shrink:0}
+.prow .rank{margin-right:4px}
+.info-tip{width:14px;height:14px;vertical-align:-2px;margin-left:4px;cursor:help;color:var(--muted);opacity:.7}
+.info-tip:hover{opacity:1;color:var(--purple)}
+.stat .lbl{display:flex;align-items:center}

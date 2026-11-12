@@ -245,7 +245,7 @@ function renderLoad() {
       <div class="track"><div class="fill" style="width:${c / max * 100}%;background:${c === max && max > 2 ? 'var(--orange)' : 'var(--purple)'}"></div></div></div>`; }).join('')
     : '<p class="muted">Noch kein Plan für diesen Monat.</p>';
 }
-function renderDashboard() { renderHeader(); renderStats(); renderNext(); renderCal(); renderDetail(); renderBlockList(); renderLoad(); icons(); }
+function renderDashboard() { renderHeader(); renderStats(); renderNext(); renderCal(); renderDetail(); renderBlockList(); renderLoad(); renderAgDayCard(); icons(); }
 
 $('#prevM').onclick = () => { viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1); renderDashboard(); };
 $('#nextM').onclick = () => { viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1); renderDashboard(); };
@@ -287,7 +287,7 @@ $('#generate').onclick = () => {
 };
 
 /* ---------- Kartei ---------- */
-let filt = { ausb: false, springer: false, noteam: false, off: false }, sortKey = 'name', sortDir = 1;
+let filt = { ausb: false, springer: false, noteam: false, off: false, trainee: false }, sortKey = 'name', sortDir = 1;
 const teamText = x => { const t = teamMates(x); return t.length ? t.map(y => y.first).join(', ') : '—'; };
 function plannedMap() {
   const c = new Map(), k0 = iso(TODAY);
@@ -297,12 +297,12 @@ function plannedMap() {
 function renderMembers() {
   const q = $('#q').value.trim().toLowerCase(), st = $('#stufe').value, pm = plannedMap();
   let list = members.filter(x => (!q || `${x.first} ${x.last} ${x.cls}`.toLowerCase().includes(q)) && (!st || x.stufe === +st)
-    && (!filt.ausb || x.ausb) && (!filt.springer || x.springer) && (!filt.noteam || !teamMates(x).length) && (!filt.off || !x.available));
+    && (!filt.ausb || x.ausb) && (!filt.springer || x.springer) && (!filt.noteam || !teamMates(x).length) && (!filt.off || !x.available) && (!filt.trainee || x.quali === 'ausbildung'));
   const keyOf = { name: x => `${x.last} ${x.first}`.toLowerCase(), cls: x => x.stufe * 100 + x.cls.charCodeAt(x.cls.length - 1), total: x => x.total, year: x => x.year, planned: x => pm.get(x.id) || 0 }[sortKey];
   list = [...list].sort((a, b) => { const ka = keyOf(a), kb = keyOf(b); return (ka > kb ? 1 : ka < kb ? -1 : 0) * sortDir; });
   $('#memCount').textContent = `(${members.length})`;
   $('#resultInfo').textContent = `${list.length} Treffer · ${list.filter(x => x.available).length} verfügbar`;
-  const badges = x => (x.ausb ? '<span class="badge">AUSB</span>' : '') + (x.springer ? '<span class="badge spr">SPR</span>' : '')
+  const badges = x => (x.ausb ? '<span class="badge">AUSB</span>' : '') + (x.quali === 'ausbildung' ? '<span class="badge warn">AZUBI</span>' : '') + (x.springer ? '<span class="badge spr">SPR</span>' : '')
     + (teamMates(x).length && !teamHasAusb([x.id, ...teamMates(x).map(y => y.id)]) ? '<span class="badge warn">TEAM!</span>' : '');
   const th = (k, label) => `<th><button data-sort="${k}" aria-label="Sortieren nach ${label}">${label}${sortKey === k ? `<i data-lucide="${sortDir > 0 ? 'arrow-up' : 'arrow-down'}" style="width:13px;height:13px"></i>` : ''}</button></th>`;
   $('#memTable').innerHTML = `<thead><tr>${th('name', 'Name')}${th('cls', 'Klasse')}<th>Rolle</th><th>Team</th>${th('total', 'Gesamt')}${th('year', 'Jahr')}${th('planned', 'Geplant')}<th>Verfügbar</th><th></th></tr></thead><tbody>`
@@ -912,7 +912,11 @@ $('#saveLog').onclick = () => {
     guv: !!$('#logGuv')?.checked,
     usedInventory: deducted,
     ist: present.length,
-    soll: logRows.filter(r => !r.spont).length
+    soll: logRows.filter(r => !r.spont).length,
+    // Teilnehmer für Statistik: {id, spont} — wer war wirklich dabei?
+    crew: present.map(r => ({ id: r.id, spont: !!r.spont })),
+    // Geplante (eingeteilte) Personen am Tag – für Soll/Ist-Abgleich & Abwesenheits-Statistik
+    planned: logRows.filter(r => !r.spont).map(r => r.id),
   };
   einsaetze.unshift(entry);
   $('#logNote').value = '';
@@ -1125,13 +1129,75 @@ function renderShiftExtraPicker() {
   });
   icons();
 }
-function creditShift(ids, d) {
+function creditShift(ids, d, isTeam = false, teamId = null) {
+  const k = iso(d);
+  
+  // 1. Planeintrag für diesen Tag erstellen/aktualisieren, damit die Statistik ihn erkennt
+  if (!plan[k]) {
+    plan[k] = {
+      team: [...ids],
+      mark: k >= iso(TODAY), // zukünftige manuelle Einträge vor Plan-Neugenerierung schützen
+      teamId: isTeam ? teamId : null,
+      extra: [],
+      status: 'ok',
+      tag: 'OK',
+      rules: [],
+      note: 'Nachträglich eingetragene Schicht'
+    };
+  } else {
+    // Vorhandenen Plan anreichern, falls Personen fehlen
+    ids.forEach(id => {
+      if (!plan[k].team.includes(id) && !(plan[k].extra || []).includes(id)) {
+        plan[k].team.push(id);
+      }
+    });
+  }
+
+  // 2. Zähler der Personen erhöhen
   ids.forEach(id => {
     const x = m(id); if (!x) return;
-    x.total++; if (d.getFullYear() === TODAY.getFullYear()) x.year++;
+    x.total++; 
+    if (d.getFullYear() === TODAY.getFullYear()) x.year++;
     if (d.getMonth() === TODAY.getMonth() && d.getFullYear() === TODAY.getFullYear()) x.month++;
   });
 }
+
+$('#addShift').onsubmit = e => {
+  e.preventDefault();
+  const d = parse($('#shiftDate').value); if (isNaN(d)) { toast('Bitte ein Datum wählen', true); return; }
+  
+  if (shiftMode === 'person') {
+    const x = m(+$('#shiftPerson').value); if (!x) { toast('Keine Person gewählt', true); return; }
+    creditShift([x.id], d, false, null);
+    save(); renderAll(); toast(`Schicht für ${x.first} nachgetragen`);
+    return;
+  }
+  
+  // Team-Modus
+  const teamId = +$('#shiftTeam').value;
+  const t = teamsList().find(x => x.id === teamId);
+  if (!t) { toast('Kein Team gewählt', true); return; }
+  
+  let allIds = [...t.ids];
+  let note = `Schicht für Team ${t.id} nachgetragen`;
+  
+  if (shiftDeviation && shiftExtras.length) {
+    const valid = shiftExtras.filter(id => m(id) && !t.ids.includes(id));
+    if (valid.length) {
+      allIds.push(...valid);
+      note += ` (+${valid.length} zusätzliche Person/en)`;
+    }
+  }
+  
+  creditShift(allIds, d, true, teamId);
+  save(); 
+  renderAll(); 
+  shiftExtras = []; 
+  $('#shiftDeviation').checked = false; 
+  $('#shiftExtraPicker').hidden = true; 
+  shiftDeviation = false;
+  toast(note);
+};
 $('#addShift').onsubmit = e => {
   e.preventDefault();
   const d = parse($('#shiftDate').value); if (isNaN(d)) { toast('Bitte ein Datum wählen', true); return; }
@@ -1169,13 +1235,18 @@ const dbInfo = () => `${members.length} Personen · ${teamsList().length} Teams 
 function renderSettings() {
   $('#rulesCard').innerHTML = `<div class="card-head"><h2>Regeln für den Plan-Generator</h2></div>
     <div class="set-row"><span>Sanis pro Dienst<small>Fehlende Plätze füllen Springer</small></span><div class="stepper"><button data-step="-1" aria-label="Weniger"><i data-lucide="minus"></i></button><b id="perShift">${settings.perShift}</b><button data-step="1" aria-label="Mehr"><i data-lucide="plus"></i></button></div></div>
+    <div class="set-row"><span>Max. Personen pro Schicht<small>Hartes Limit inkl. Springer &amp; Auszubildende (empfohlen 3–4)</small></span><div class="stepper"><button data-maxstep="-1" aria-label="Weniger"><i data-lucide="minus"></i></button><b id="maxShift">${settings.maxShift || 4}</b><button data-maxstep="1" aria-label="Mehr"><i data-lucide="plus"></i></button></div></div>
+    <div class="set-row"><span>Trainees pro erfahrenem Team<small>Azubis, die zur Ausbildung zugeteilt werden (0–2)</small></span><div class="stepper"><button data-trainstep="-1" aria-label="Weniger"><i data-lucide="minus"></i></button><b id="traineesPerShift">${settings.traineesPerShift ?? 2}</b><button data-trainstep="1" aria-label="Mehr"><i data-lucide="plus"></i></button></div></div>
     <div class="set-row lockrow"><span>Sperrtage, Verfügbarkeit &amp; AUSB-Pflicht<small>Immer hart – werden nie gelockert</small></span><i data-lucide="lock"></i></div>
     ${settingsRow('fair', 'Fairness-Ausgleich', 'Wenig belastete Teams zuerst')}
     ${settingsRow('weekday', 'Kein Wochentag doppelt', 'Pro Team und Monat (lockerbar)')}
     ${settingsRow('friMon', 'Kein Fr–Mo-Doppeldienst', 'Keine Back-to-Back-Dienste übers Wochenende (lockerbar)')}
     ${settingsRow('notify', 'Push bei Alarm', 'Benachrichtigung an eingeteilte Sanis')}
     <div class="set-row"><span>Ich bin<small>Für „Mein nächster Dienst“</small></span><div class="select"><label class="sr-only" for="meSel">Ich bin</label><select id="meSel"><option value="">–</option>${members.map(x => `<option value="${x.id}" ${x.id === settings.me ? 'selected' : ''}>${esc(fullName(x))}</option>`).join('')}</select><i data-lucide="chevron-down"></i></div></div>
-    <div class="algo"><b>So plant der Algorithmus:</b> Backtracking mit Branch-and-Bound. Pro Tag werden alle gültigen Teams (+Springer) geprüft; Sperrtage, Verfügbarkeit und AUSB-Pflicht schließen Optionen hart aus. Max. 1 Dienst pro Woche, kein doppelter Wochentag und kein Fr→Mo-Dienst sind weiche Regeln: Ist der Plan zu eng, werden sie mit Strafkosten gelockert und der Tag erhält ein <b>REG</b>-, <b>SPR</b>- oder <b>x/y</b>-Badge. Kann ein Tag gar nicht besetzt werden, erscheint er als Konflikt.</div>`;
+    <div class="set-row"><span>AG-Treffen ist am<small>Für die Anwesenheits-Checkliste auf dem Dashboard</small></span><div class="select"><label class="sr-only" for="agDaySel">AG-Tag</label><select id="agDaySel">${[['','kein fester Tag'],['1','Montag'],['2','Dienstag'],['3','Mittwoch'],['4','Donnerstag'],['5','Freitag']].map(([v, l]) => `<option value="${v}" ${String(settings.agWeekday ?? 1) === v ? 'selected' : ''}>${l}</option>`).join('')}</select><i data-lucide="chevron-down"></i></div></div>
+    <div class="algo"><b>So plant der Algorithmus:</b> Backtracking mit Branch-and-Bound. Pro Tag werden alle gültigen Teams (+Springer) geprüft; Sperrtage, Verfügbarkeit und AUSB-Pflicht schließen Optionen hart aus. Max. 1 Dienst pro Woche, kein doppelter Wochentag und kein Fr→Mo-Dienst sind weiche Regeln: Ist der Plan zu eng, werden sie mit Strafkosten gelockert und der Tag erhält ein <b>REG</b>-, <b>SPR</b>- oder <b>x/y</b>-Badge. Kann ein Tag gar nicht besetzt werden, erscheint er als Konflikt.</div>
+    <div class="algo" style="margin-top:10px"><b>Ausbildungs-Rollen:</b> Ausgebildete ohne Team springen als <b>AUSB-Springer</b> zwischen Teams. Auszubildende (<b>Trainees</b>) werden mit niedrigen Kosten bevorzugt an erfahrene Teams mitgesetzt (Mentoring) – bis zu max. ${settings.maxShift || 4} Personen pro Schicht. Manuell nachgetragene zukünftige Schichten (Schicht nachtragen) bleiben beim Neu-Generieren erhalten.</div>
+    <div class="algo" style="margin-top:10px"><b>Schulstruktur:</b> Normaler Tag: ${settings.schoolDay.map(h => `${h.von}–${h.bis}`).join(', ')}. Kurztag: ${settings.schoolDayShort.map(h => `${h.von}–${h.bis}`).join(', ')}.</div>`;
   $('#dataCard').innerHTML = `<div class="card-head"><h2>Daten &amp; Backup (.sani)</h2></div>
     <div class="set-row"><span>Lokale Datenbank<small id="dbInfo">${dbInfo()}</small></span><span class="status-pill ok">Offline</span></div>
     <div class="export-grid">
@@ -1210,6 +1281,9 @@ function renderSettings() {
   $('#bkEmpty').onclick = () => confirmBox('Leere Datenbank starten?', 'Alle Personen, Teams, Sperrtage, Pläne und Einsätze werden gelöscht.', 'Alles löschen', () => { emptyDb(); openMemo = null; save(); loadLog(); renderAll(); toast('Leere Datenbank angelegt'); });
   $$('[data-set]').forEach(b => b.onclick = () => { settings[b.dataset.set] = !settings[b.dataset.set]; b.setAttribute('aria-checked', settings[b.dataset.set]); save(); });
   $$('[data-step]').forEach(b => b.onclick = () => { settings.perShift = Math.min(3, Math.max(1, settings.perShift + +b.dataset.step)); $('#perShift').textContent = settings.perShift; save(); });
+  $$('[data-maxstep]').forEach(b => b.onclick = () => { settings.maxShift = Math.min(6, Math.max(2, (settings.maxShift || 4) + +b.dataset.maxstep)); $('#maxShift').textContent = settings.maxShift; save(); });
+  $$('[data-trainstep]').forEach(b => b.onclick = () => { settings.traineesPerShift = Math.min(2, Math.max(0, (settings.traineesPerShift ?? 2) + +b.dataset.trainstep)); $('#traineesPerShift').textContent = settings.traineesPerShift; save(); });
+  const agSel = $('#agDaySel'); if (agSel) agSel.onchange = e => { settings.agWeekday = e.target.value === '' ? null : +e.target.value; save(); renderAgDayCard(); };
   $('#meSel').onchange = e => { settings.me = e.target.value === '' ? null : +e.target.value; save(); renderHeader(); renderNext(); icons(); };
   icons();
 }
@@ -1469,3 +1543,124 @@ $('#addMember').onclick = () => openMember(null);
 /* ---------- Start ---------- */
 function renderAll() { renderDashboard(); renderMembers(); renderBars(); renderExams(); renderLog(); renderSettings(); icons(); }
 boot(); loadLog(); renderAll(); save(); renderHeader(); go((location.hash || '').slice(1) || 'home');
+
+/* ---------- AG-Tages-Checkliste (nur am eingestellten AG-Tag sichtbar) ---------- */
+function renderAgDayCard() {
+  let host = $('#agDayCard');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'agDayCard';
+    host.className = 'card';
+    const anchor = $('#panicBanner'); // nach der Panic-Banner einfügen
+    if (anchor && anchor.parentNode) anchor.after(host);
+    else return;
+  }
+  const wd = settings.agWeekday;
+  if (wd == null || TODAY.getDay() !== wd) { host.hidden = true; host.innerHTML = ''; return; }
+  host.hidden = false;
+  const k = iso(TODAY);
+  const att = agAttendance[k] || [];
+  const WDlbl = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'][wd];
+  host.innerHTML = `<div class="card-head"><h2><i data-lucide="clipboard-check" style="vertical-align:-3px"></i> AG-Treffen heute (${WDlbl})</h2>
+    <span class="muted-s">${att.length}/${members.length} anwesend</span></div>
+    <p class="muted-s" style="margin:4px 0 10px">Wer ist beim AG-Treff? Ein Tipp pro Person reicht – alles wird in der Strichliste gespeichert.</p>
+    <div class="ag-checkgrid">${members.map(x => {
+      const on = att.includes(x.id);
+      return `<label class="c-box"><input type="checkbox" data-agday="${x.id}" ${on ? 'checked' : ''}><span>${av(x)}${esc(fullName(x))}${x.ausb ? '<span class="badge">AUSB</span>' : ''}${x.quali === 'ausbildung' ? '<span class="badge warn">AZUBI</span>' : ''}</span></label>`;
+    }).join('') || '<p class="muted">Noch keine Mitglieder angelegt.</p>'}</div>
+    <div class="modal-actions" style="margin-top:10px">
+      <button class="btn ghost small" id="agAllBtn"><i data-lucide="check-check"></i>Alle anwesend</button>
+      <button class="btn ghost small" id="agClearBtn"><i data-lucide="eraser"></i>Zurücksetzen</button>
+    </div>`;
+  $$('[data-agday]').forEach(cb => cb.onchange = () => {
+    agAttendance[k] = agAttendance[k] || [];
+    const id = +cb.dataset.agday;
+    if (cb.checked) { if (!agAttendance[k].includes(id)) agAttendance[k].push(id); }
+    else agAttendance[k] = agAttendance[k].filter(v => v !== id);
+    save(); icons();
+  });
+  $('#agAllBtn').onclick = () => { agAttendance[k] = members.map(x => x.id); save(); renderAgDayCard(); };
+  $('#agClearBtn').onclick = () => { delete agAttendance[k]; save(); renderAgDayCard(); };
+  icons();
+}
+
+/* ---------- Notfall-Rangliste: Wer kann kurzfristig einspringen? ---------- */
+function replacementRanking(absentIds, day = TODAY) {
+  const bm = blockedMap(day);
+  const candidates = members.filter(x =>
+    x.available && !bm.has(x.id) && !absentIds.includes(x.id) &&
+    (x.springer || x.team == null || !(day && false)));
+  // Scoring nach den bekannten Richtlinien: wenig Last, lange her letzter Dienst, AUSB bevorzugt
+  const scored = candidates.map(x => {
+    const sc = window.SaniMetrics
+      ? window.SaniMetrics.solverScores([{ id: x.id, L: x.total, daysSinceLast: 0, examPressure: 0, springerShifts: 0, T: 1 }])[0]
+      : null;
+    const priority = (x.springer ? 0 : 1) + (x.team == null ? 0 : 0.5) + (x.total / 100);
+    return { x, priority: sc ? sc.P : priority, ausb: x.ausb };
+  });
+  return scored.sort((a, b) => (b.x.ausb - a.x.ausb) || (a.priority - b.priority));
+}
+
+function openSubstituteModal(absentIds, day = TODAY) {
+  const em = morningEmergencyCheck(day);
+  const ranked = replacementRanking(absentIds, day);
+  const names = absentIds.map(id => m(id)?.first || '?').join(', ');
+  openModal(`<h3 id="mTitle"><i data-lucide="user-cog" style="vertical-align:-3px"></i> Ausfall melden &amp; Ersatz wählen</h3>
+    <p class="lead">Ausgefallen: <b>${esc(names)}</b> am ${fmt(day)}. Die Rangliste folgt den bekannten Regeln (AUSB zuerst, wenig Last, lange her letzter Dienst, Springer-Priorität).</p>
+    <div class="list" id="rankList">${ranked.map(({ x, priority }, i) => {
+      const badge = x.ausb ? '<span class="badge">AUSB</span>' : x.quali === 'ausbildung' ? '<span class="badge warn">AZUBI</span>' : '';
+      const reasons = [`Priorität ${(1 - priority).toFixed(2)}`, x.springer ? 'Springer' : x.team != null ? `Team ${x.team}` : 'ohne Team', `${x.total} Dienste`];
+      return `<button class="prow" data-subin="${x.id}" style="width:100%;text-align:left;cursor:pointer"><span class="rank">${i + 1}</span>${av(x)}<div class="t"><span>${esc(fullName(x))} ${badge}</span><small>${esc(reasons.join(' · '))}</small></div><i data-lucide="corner-down-right"></i></button>`;
+    }).join('') || '<p class="muted">Niemand verfügbar.</p>'}</div>
+    <div class="modal-actions"><button class="btn ghost" data-close>Schließen</button></div>`, { wide: true });
+  $$('[data-subin]').forEach(b => b.onclick = () => {
+    const saniId = +b.dataset.subin;
+    const e = plan[iso(day)] || plan[iso(TODAY)];
+    if (!e) { toast('Kein Dienst heute', true); return; }
+    e.team = e.team.map(id => absentIds.includes(id) ? saniId : id);
+    if (!e.extra.includes(saniId)) e.extra.push(saniId);
+    e.status = 'warn'; e.tag = 'SPR';
+    e.note = `Notfall-Wechsel: ${m(saniId)?.first} für ${absentIds.map(id => m(id)?.first || '?').join(', ')} eingewechselt`;
+    save(); renderAll(); closeModal();
+    toast(`${m(saniId)?.first} eingewechselt!`);
+  });
+  icons();
+}
+
+/* ---------- Info-Tooltips (i) für Statistik-Werte ---------- */
+const METRIC_INFO = {
+  'Bereitschafts-Fairness': 'Wie gleichmäßig sind die Bereitschaftsdienste verteilt? 100 % = jede Person hatte gleich viele Dienste. Berechnet aus dem Variationskoeffizienten (VK): Score = 100 − VK.',
+  'Einsatz-Fairness': 'Wie gleichmäßig verteilen sich die echten Alarm-Teilnahmen? Wer oft Dienst hatte, aber selten Alarm erlebte, unterscheidet sich hier von der Bereitschafts-Fairness.',
+  'Gesamtbelastung': 'Kombinierter Score: 60 % Bereitschafts-Fairness + 40 % Einsatz-Fairness. Je höher, desto fairer verteilt.',
+  'VK': 'Variationskoeffizient: Standardabweichung ÷ Durchschnitt × 100. Ziel: unter 15 %. Grün = ausgeglichen, Rot = einzelne deutlich überlastet.',
+  'Q': 'Einsatzquote während Bereitschaft: (Einsätze während eigenem Dienst ÷ Dienste) × 100. Hoher Wert = bei dir passierte viel. Kein Qualitätsmaß – nur Last-Verteilung!',
+  'S': 'Dienstquote: Zugeteilte Dienste ÷ verfügbare mögliche Dienste. 1 = bei jeder Schicht warst du dran. 0.5 = du hattest nur die Hälfte deiner möglichen Dienste.',
+  'V': 'Verfügbarkeitsquote: Verfügbare mögliche Dienste ÷ alle möglichen Dienste (Schultage ohne Sperrtag). Niedrig = viel verhindert (Klausuren, Krank …).',
+  'T': '30-Tage-Trend: Dienste in den letzten 30 Tagen ÷ Dienste in den 30 Tagen davor. >1 = Belastung steigt, <1 = sinkt.',
+  'P': 'Algorithmus-Score P_i = 0.35·Gesamtlast + 0.25·Zeit seit letztem Dienst + 0.20·Klausurdruck + 0.10·Springer-Last + 0.10·Trend. Niedrig = wird beim Generieren bevorzugt.'
+};
+function attachInfoTips(root = document) {
+  $$('.stat .lbl, .kpi-grid span', root).forEach(el => {
+    const txt = el.textContent.trim();
+    const key = Object.keys(METRIC_INFO).find(k => txt.startsWith(k) || (k.length === 1 && txt === k));
+    if (!key || el.dataset.tip) return;
+    el.dataset.tip = '1';
+    el.insertAdjacentHTML('beforeend', `<i data-lucide="info" class="info-tip" tabindex="0" role="button" aria-label="Erklärung" title="${METRIC_INFO[key].replace(/"/g, '&quot;')}"></i>`);
+  });
+  $$('.hm-legend, .bars-legend', root).length; // noop halt
+  const bk = $('.bars .muted-s'); // Hinweistext erweitern nicht nötig
+  icons();
+}
+// Info-Tipps nach jedem Statistik-Render anwenden
+const _origRenderBars = renderBars;
+renderBars = function () { _origRenderBars(); attachInfoTips($('#summary')); attachInfoTips($('#bars')); };
+
+// Notfall-Modal um Rangliste erweitern: ersetze Standby-Liste durch Ranking
+const _origOpenPanicModal = openPanicModal;
+openPanicModal = function () {
+  const em = morningEmergencyCheck(TODAY);
+  if (!em) { toast('Heute kein regulärer Schultag', true); return; }
+  const absentIds = em.entry.team.filter(id => !m(id).available || blockedMap(TODAY).has(id));
+  if (absentIds.length) { openSubstituteModal(absentIds, TODAY); return; }
+  _origOpenPanicModal();
+};

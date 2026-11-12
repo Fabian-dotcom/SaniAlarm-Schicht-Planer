@@ -30,6 +30,9 @@
   const isSchool = d => d.getDay() > 0 && d.getDay() < 6;
   const weekKey = d => iso(addDays(d, -((d.getDay() + 6) % 7)));
   const stufeOf = m => m.stufe != null ? +m.stufe : parseInt(m.cls, 10);
+  // Rollen: ausgebildet (ausb) vs in Ausbildung (trainee)
+  const isTrainee = m => m.quali === 'ausbildung';
+  const isAusb = m => m.quali === 'ausb' || (m.ausb && m.quali !== 'helfer');
 
   /* Strafkosten: Sperrtage haben keine Kosten, weil sie gar nicht erst in der Domäne vorkommen */
   const PEN = { wd: 20, week: 60, fm: 80, sprWeek: 30, sprOnly: 40, missing: 150, none: 1000, extra: 2 };
@@ -153,6 +156,11 @@
         return c;
       });
       day.springers = members.filter(m => m.springer && m.available && !day.blocked.has(m.id));
+      // Ausgebildete ohne festes Team helfen als Ausb-Springer zwischen Präferenz-Teams
+      day.ausbSpringers = members.filter(m => isAusb(m) && !isTrainee(m) && m.team == null && m.available && !day.blocked.has(m.id) && !m.springer);
+      // Trainee-Pool: Auszubildende ohne festes Team, für Mentoring-Dienste
+      day.traineePool = members.filter(m => isTrainee(m) && m.available && !day.blocked.has(m.id));
+      day.maxShift = Math.max(day.per, (settings.maxShift || day.per + 2));
     });
 
     /* --- Nutzungszähler (mit Undo) --- */
@@ -229,19 +237,38 @@
         }
         const team = [...c.usable], extra = [];
         let missing = 0;
+        // Ausb-Springer (ausgebildet, ohne Team) zuerst als Ergänzung – sie sammeln Rotation
+        const auxPool = [
+          ...day.springers.filter(s => !team.includes(s.id) && isAusb(s)).map(s => ({ s, kind: 'spr' })),
+          ...day.ausbSpringers.filter(s => !team.includes(s.id)).map(s => ({ s, kind: 'aux' })),
+          ...day.traineePool.filter(s => !team.includes(s.id)).map(s => ({ s, kind: 'trainee' })),
+          ...day.springers.filter(s => !team.includes(s.id) && !isAusb(s) && !isTrainee(s)).map(s => ({ s, kind: 'spr' })),
+        ];
         const need = curPer - team.length;
-        if (need > 0) {
-          const pool = day.springers.filter(s => !team.includes(s.id))
-            .map(s => ({ s, used: get(U.spr, s.id + '|' + day.wk) > 0 }))
-            .sort((a, b) => (a.used - b.used) || a.s.total - b.s.total);
-          for (let i = 0; i < need; i++) {
-            const p = pool[i];
-            if (!p) { missing++; continue; }
+        const fillUp = (limit, allowTraineeBonus) => {
+          const usedWeek = id => get(U.spr, id + '|' + day.wk) > 0;
+          const ranked = auxPool
+            .filter(a => !team.includes(a.s.id))
+            .map(a => ({ ...a, used: usedWeek(a.s.id) }))
+            .sort((a, b) => {
+              const rank = k => k === 'aux' ? 0 : k === 'spr' ? 1 : 2;
+              return (a.used - b.used) || (rank(a.kind) - rank(b.kind)) || a.s.total - b.s.total;
+            });
+          for (let i = 0; i < limit; i++) {
+            const p = ranked[i];
+            if (!p) return i;
             team.push(p.s.id); extra.push(p.s.id);
-            cost += PEN.extra;
+            if (p.kind === 'trainee' && allowTraineeBonus) cost -= 4; // Mentoring: Trainee gerne dazu
+            else cost += PEN.extra;
             if (p.used) { if (!viol.includes('sprWeek')) viol.push('sprWeek'); cost += PEN.sprWeek; }
           }
-        }
+          return limit;
+        };
+        let filled = 0;
+        if (need > 0) filled = fillUp(need, true);
+        else if (day.traineePool.length) filled = fillUp(Math.min(2, day.maxShift - team.length), true);
+        else if (day.ausbSpringers.length) filled = fillUp(Math.min(1, day.maxShift - team.length), false);
+        if (filled < need) missing = need - filled;
         cost += missing * PEN.missing;
         // Fairness: durchschnittlicher P_i-Score des Teams (dezent skaliert, Regelkosten dominieren)
         cost += t.ids.reduce((a, id) => a + pi(id), 0) / Math.max(1, t.ids.length) * 8;
