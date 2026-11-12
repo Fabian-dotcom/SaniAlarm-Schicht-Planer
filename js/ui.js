@@ -956,17 +956,19 @@ function renderBars() {
     + statCard('sigma', vkColor, `VK ${kpi.vkOk ? 'im Ziel' : 'zu hoch'}`, kpi.vk, null, '%');
   // --- Balken je nach Metrik-Ansicht ---
   const valOf = p => metricView === 'alarm' ? p.alarms : p.duties;
-  const active = per.filter(p => valOf(p) > 0 || p.duties > 0);
+  // ALLE Mitglieder – auch ohne Dienste (0-Werte); sie werden ganz unten sortiert und sind zuerst einzuteilen
+  const alleMembers = members.map(x => per.find(pp => pp.id === x.id)).filter(Boolean);
+  const active = alleMembers;
   const vals = active.map(valOf);
   const avgL = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-  $('#bars').innerHTML = active.length ? [...active].sort((a, b) => valOf(b) - valOf(a)).map(p => {
+  $('#bars').innerHTML = active.length ? [...active].sort((a, b) => valOf(a) - valOf(b)).map(p => {
     const x = m(p.id);
     const idx = avgL ? Math.round(valOf(p) / avgL * 100) : 0;
     const color = idx >= 130 ? 'var(--red)' : idx >= 105 ? 'var(--orange)' : 'var(--green)';
     const sc = scoreById.get(p.id);
     const devTxt = group.perMember[p.id] ? `D=${group.perMember[p.id].D > 0 ? '+' : ''}${group.perMember[p.id].D}` : '';
     const sub = metricView === 'fair' && sc ? ` · P=${sc.P}` : '';
-    return `<div class="bar-row" data-profile="${p.id}" role="button" tabindex="0" aria-label="Profil ${esc(x.first)} öffnen"><div class="top-line"><span class="n">${av(x)}${esc(fullName(x))}<small>${esc(x.cls || '')}${x.ausb ? ' · AUSB' : ''}${x.springer ? ' · SPR' : ''}</small></span><span class="idx"><b>${idx}%</b> · ${valOf(p)}${sub}<small>${devTxt}</small></span></div>
+    return `<div class="bar-row" data-profile="${p.id}" role="button" tabindex="0" aria-label="Profil ${esc(x.first)} öffnen"><div class="top-line"><span class="n">${av(x)}${esc(fullName(x))}<small>${esc(x.cls || '')}${x.ausb ? ' · AUSB' : ''}${x.quali === 'ausbildung' ? ' · AZUBI' : ''}${x.springer ? ' · SPR' : ''}${valOf(p) === 0 ? ' · NOCH OHNE DIENST' : ''}</small></span><span class="idx"><b>${idx}%</b> · ${valOf(p)}${sub}<small>${devTxt}</small></span></div>
       <div class="track" role="progressbar" aria-label="Belastungsindex ${esc(x.first)}" aria-valuenow="${idx}" aria-valuemin="0" aria-valuemax="200"><div class="fill" style="width:${Math.min(idx / 2, 100)}%;background:${color}"></div><span class="avgmark"></span></div></div>`;
   }).join('') + `<div class="bars-legend"><span>0%</span><span>Ø 100%</span><span>200%</span></div>`
     : '<p class="muted">Noch keine Dienste erfasst.</p>';
@@ -1246,7 +1248,16 @@ function renderSettings() {
     <div class="set-row"><span>AG-Treffen ist am<small>Für die Anwesenheits-Checkliste auf dem Dashboard</small></span><div class="select"><label class="sr-only" for="agDaySel">AG-Tag</label><select id="agDaySel">${[['','kein fester Tag'],['1','Montag'],['2','Dienstag'],['3','Mittwoch'],['4','Donnerstag'],['5','Freitag']].map(([v, l]) => `<option value="${v}" ${String(settings.agWeekday ?? 1) === v ? 'selected' : ''}>${l}</option>`).join('')}</select><i data-lucide="chevron-down"></i></div></div>
     <div class="algo"><b>So plant der Algorithmus:</b> Backtracking mit Branch-and-Bound. Pro Tag werden alle gültigen Teams (+Springer) geprüft; Sperrtage, Verfügbarkeit und AUSB-Pflicht schließen Optionen hart aus. Max. 1 Dienst pro Woche, kein doppelter Wochentag und kein Fr→Mo-Dienst sind weiche Regeln: Ist der Plan zu eng, werden sie mit Strafkosten gelockert und der Tag erhält ein <b>REG</b>-, <b>SPR</b>- oder <b>x/y</b>-Badge. Kann ein Tag gar nicht besetzt werden, erscheint er als Konflikt.</div>
     <div class="algo" style="margin-top:10px"><b>Ausbildungs-Rollen:</b> Ausgebildete ohne Team springen als <b>AUSB-Springer</b> zwischen Teams. Auszubildende (<b>Trainees</b>) werden mit niedrigen Kosten bevorzugt an erfahrene Teams mitgesetzt (Mentoring) – bis zu max. ${settings.maxShift || 4} Personen pro Schicht. Manuell nachgetragene zukünftige Schichten (Schicht nachtragen) bleiben beim Neu-Generieren erhalten.</div>
-    <div class="algo" style="margin-top:10px"><b>Schulstruktur:</b> Normaler Tag: ${settings.schoolDay.map(h => `${h.von}–${h.bis}`).join(', ')}. Kurztag: ${settings.schoolDayShort.map(h => `${h.von}–${h.bis}`).join(', ')}.</div>`;
+    <div class="algo" style="margin-top:10px"><b>Schulstruktur:</b> Zeiten der Schulstunden anpassen (gilt für Zeitraster & Stundenplan).</div>
+    <div class="algo" id="schoolTimesEditor" style="margin-top:6px">
+      <div><b>Normaler Schultag</b></div>
+      ${settings.schoolDay.map((h, i) => `<div class="set-row"><span>${h.h}. Stunde</span><span style="display:flex;gap:6px;align-items:center"><input class="inp" type="time" data-sd="schoolDay" data-idx="${i}" data-field="von" value="${h.von}" style="max-width:110px"> – <input class="inp" type="time" data-sd="schoolDay" data-idx="${i}" data-field="bis" value="${h.bis}" style="max-width:110px"></span></div>`).join('')}
+      <div style="margin-top:10px"><b>Kurzstunden-Tag</b></div>
+      ${settings.schoolDayShort.map((h, i) => `<div class="set-row"><span>${h.h}. Stunde</span><span style="display:flex;gap:6px;align-items:center"><input class="inp" type="time" data-sd="schoolDayShort" data-idx="${i}" data-field="von" value="${h.von}" style="max-width:110px"> – <input class="inp" type="time" data-sd="schoolDayShort" data-idx="${i}" data-field="bis" value="${h.bis}" style="max-width:110px"></span></div>`).join('')}
+      <div class="form-row" style="margin-top:10px">
+        <button class="btn ghost small" id="sdReset"><i data-lucide="rotate-ccw"></i>Standardzeiten wiederherstellen</button>
+      </div>
+    </div>`;
   $('#dataCard').innerHTML = `<div class="card-head"><h2>Daten &amp; Backup (.sani)</h2></div>
     <div class="set-row"><span>Lokale Datenbank<small id="dbInfo">${dbInfo()}</small></span><span class="status-pill ok">Offline</span></div>
     <div class="export-grid">
@@ -1284,6 +1295,16 @@ function renderSettings() {
   $$('[data-maxstep]').forEach(b => b.onclick = () => { settings.maxShift = Math.min(6, Math.max(2, (settings.maxShift || 4) + +b.dataset.maxstep)); $('#maxShift').textContent = settings.maxShift; save(); });
   $$('[data-trainstep]').forEach(b => b.onclick = () => { settings.traineesPerShift = Math.min(2, Math.max(0, (settings.traineesPerShift ?? 2) + +b.dataset.trainstep)); $('#traineesPerShift').textContent = settings.traineesPerShift; save(); });
   const agSel = $('#agDaySel'); if (agSel) agSel.onchange = e => { settings.agWeekday = e.target.value === '' ? null : +e.target.value; save(); renderAgDayCard(); };
+  // Schulzeiten-Editor: Zeiten ändern & speichern
+  $$('[data-sd]').forEach(inp => inp.onchange = () => {
+    const key = inp.dataset.sd, i = +inp.dataset.idx, f = inp.dataset.field;
+    if (settings[key] && settings[key][i]) { settings[key][i][f] = inp.value; save(); }
+  });
+  const sdReset = $('#sdReset'); if (sdReset) sdReset.onclick = () => {
+    settings.schoolDay = [{ h: 1, von: '07:55', bis: '08:40' }, { h: 2, von: '08:45', bis: '09:30' }, { h: 3, von: '09:50', bis: '10:35' }, { h: 4, von: '10:40', bis: '11:25' }, { h: 5, von: '11:40', bis: '12:25' }, { h: 6, von: '12:30', bis: '13:15' }, { h: 7, von: '13:30', bis: '14:15' }];
+    settings.schoolDayShort = [{ h: 1, von: '07:55', bis: '08:35' }, { h: 2, von: '08:40', bis: '09:20' }, { h: 3, von: '09:25', bis: '10:05' }, { h: 4, von: '10:15', bis: '10:55' }, { h: 5, von: '11:00', bis: '11:40' }, { h: 6, von: '11:45', bis: '12:25' }];
+    save(); renderSettings(); toast('Standardzeiten wiederhergestellt');
+  };
   $('#meSel').onchange = e => { settings.me = e.target.value === '' ? null : +e.target.value; save(); renderHeader(); renderNext(); icons(); };
   icons();
 }

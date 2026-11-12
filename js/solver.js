@@ -247,28 +247,56 @@
         const need = curPer - team.length;
         const fillUp = (limit, allowTraineeBonus) => {
           const usedWeek = id => get(U.spr, id + '|' + day.wk) > 0;
+          // Trainee-Duos (2 Trainees mit gleicher team-ID) haben „Lieblingspartner":
+          // wenn beide verfügbar sind, kommen sie gemeinsam (Partner-Bonus) in die Schicht;
+          // ist nur ein Platz frei, gewinnt der Trainee mit dem größten Bedarf
+          // (wenigste Dienste = am längsten nicht dran = höchste Fairness-Priorität).
+          const traineeDue = t => -(t.total || 0) - (piCache.get(t.id) !== undefined ? 0 : 0); // niedriger Score zuerst
           const ranked = auxPool
             .filter(a => !team.includes(a.s.id))
             .map(a => ({ ...a, used: usedWeek(a.s.id) }))
             .sort((a, b) => {
               const rank = k => k === 'aux' ? 0 : k === 'spr' ? 1 : 2;
-              return (a.used - b.used) || (rank(a.kind) - rank(b.kind)) || a.s.total - b.s.total;
+              const due = (x, y) => x.kind === 'trainee' && y.kind === 'trainee'
+                ? (x.s.total - y.s.total)              // am wenigsten Dienste zuerst
+                : 0;
+              return (a.used - b.used) || (rank(a.kind) - rank(b.kind)) || due(a, b) || (a.s.total - b.s.total);
             });
-          for (let i = 0; i < limit; i++) {
+          // Trainee-Duo-Bonus: wenn ein Trainee gewählt wird und sein Partner (gleiche team-ID,
+          // ebenfalls Trainee, verfügbar) noch in den nächsten Slots passt, zieht er mit nach
+          const traineePartners = new Map();
+          members.forEach(mm => { if (isTrainee(mm) && mm.team != null) {
+            const duo = members.filter(x => x.team === mm.team && isTrainee(x) && x.id !== mm.id);
+            if (duo.length) traineePartners.set(mm.id, duo.map(x => x.id));
+          }});
+          let taken = 0;
+          for (let i = 0; i < ranked.length && taken < limit; i++) {
             const p = ranked[i];
-            if (!p) return i;
-            team.push(p.s.id); extra.push(p.s.id);
+            if (!p || team.includes(p.s.id)) continue;
+            team.push(p.s.id); extra.push(p.s.id); taken++;
             if (p.kind === 'trainee' && allowTraineeBonus) cost -= 4; // Mentoring: Trainee gerne dazu
             else cost += PEN.extra;
             if (p.used) { if (!viol.includes('sprWeek')) viol.push('sprWeek'); cost += PEN.sprWeek; }
+            // Lieblingspartner (Trainee-Duo) mitnehmen, wenn noch Platz ist
+            if (p.kind === 'trainee' && taken < limit) {
+              const partners = (traineePartners.get(p.s.id) || [])
+                .filter(pid => !team.includes(pid) && !day.blocked.has(pid))
+                .map(pid => ({ pid, mm: byId.get(pid) }))
+                .filter(x => x.mm && x.mm.available)
+                .sort((a, b) => (a.mm.total || 0) - (b.mm.total || 0));
+              if (partners.length) {
+                team.push(partners[0].pid); extra.push(partners[0].pid); taken++;
+                cost -= 2; // Duo-Bonus: Lieblingspartner zusammen
+              }
+            }
           }
-          return limit;
+          return taken;
         };
         let filled = 0;
         if (need > 0) filled = fillUp(need, true);
         else if (day.traineePool.length) filled = fillUp(Math.min(2, day.maxShift - team.length), true);
         else if (day.ausbSpringers.length) filled = fillUp(Math.min(1, day.maxShift - team.length), false);
-        if (filled < need) missing = need - filled;
+        if (need > 0 && filled < need) missing = need - filled;
         cost += missing * PEN.missing;
         // Fairness: durchschnittlicher P_i-Score des Teams (dezent skaliert, Regelkosten dominieren)
         cost += t.ids.reduce((a, id) => a + pi(id), 0) / Math.max(1, t.ids.length) * 8;
