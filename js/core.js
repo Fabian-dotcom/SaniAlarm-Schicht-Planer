@@ -27,20 +27,17 @@ const BTYPES = {
   // Wiederkehrend: Person/Team ist regelmäßig an bestimmten Wochentagen nicht da
   Generell: { tag: 'GV', icon: 'repeat', weekly: true },
 };
+const WD_IDX = { So: 0, Mo: 1, Di: 2, Mi: 3, Do: 4, Fr: 5, Sa: 6 };
 const DEFAULT_LOCATION = 'Sanitätsraum B014';
 const DEFAULT_SHIFT_TIME = '09:30 – 09:50';
 const DEFAULT_SETTINGS = { perShift: 2, fair: true, weekday: true, friMon: true, notify: true, me: 0,
-  // Fairness-Engine: Gewichte des Multi-Faktor-Scores P_i
-  wF: 0.35, wR: 0.25, wS: 0.20, wK: 0.10, wT: 0.10, vkGoal: 15,
-  // AG-Treffen-Wochentag (1 = Montag)
-  agWeekday: 1,
-  // Maximalgröße einer Schicht (Soll + Springer + Auszubildende)
-  maxShift: 4,
-  // Ausbildung: Wie viele neue Leute pro erfahrenem Team (1-2)
-  traineesPerShift: 2,
-  // Normaler Schultag / Kurzstunden (Stunden-Raster, später für Zeitraster nutzbar)
-  schoolDay: [{ h: 1, von: '07:55', bis: '08:40' }, { h: 2, von: '08:45', bis: '09:30' }, { h: 3, von: '09:50', bis: '10:35' }, { h: 4, von: '10:40', bis: '11:25' }, { h: 5, von: '11:40', bis: '12:25' }, { h: 6, von: '12:30', bis: '13:15' }, { h: 7, von: '13:30', bis: '14:15' }],
-  schoolDayShort: [{ h: 1, von: '07:55', bis: '08:35' }, { h: 2, von: '08:40', bis: '09:20' }, { h: 3, von: '09:25', bis: '10:05' }, { h: 4, von: '10:15', bis: '10:55' }, { h: 5, von: '11:00', bis: '11:40' }, { h: 6, von: '11:45', bis: '12:25' }] };
+  // Fairness-Engine: Gewichte des Multi-Faktor-Scores P_i = wF*F + wR*R + wS*S + wK*K + wT*T
+  wF: 0.35, wR: 0.25, wS: 0.20, wK: 0.10, wT: 0.10, vkGoal: 15 };
+const QUALI = {
+  helfer: { label: 'Helfer', icon: 'hand-heart', short: 'HEL' },
+  ausbildung: { label: 'In Ausbildung', icon: 'graduation-cap', short: 'AUS?' },
+  ausb: { label: 'Vollständig ausgebildet (AUSB)', icon: 'badge-check', short: 'AUSB' },
+};
 const DEFAULT_INVENTORY = {
   coolpack: { label: 'Kühlpacks (Sofort-Kälte)', count: 24, warnAt: 5 },
   bandage: { label: 'Mullbinden / Fixierbinden', count: 30, warnAt: 6 },
@@ -64,7 +61,8 @@ const SCHOOL_HOURS = [
   { h: 6, label: '6. Stunde (12:30 – 13:15)' },
   { h: 7, label: '7. Stunde (13:30 – 14:15)' },
 ];
-const DB_KEY = 'saniteam.v1';
+const DB_KEY = 'saniteam.v2';
+const LEGACY_DB_KEYS = ['saniteam.v1'];
 
 /* ---------- Raum- & Ortshelfer ---------- */
 const SPECIAL_PLACES = ['Sporthalle', 'Schulhof', 'Mensa', 'Sanitätsraum B014', 'Sekretariat / Verwaltung', 'Pausenhalle / Foyer', 'Bibliothek', 'Außengelände / Sportplatz', 'Sonstiges'];
@@ -107,7 +105,7 @@ const fairnessOf = SS.fairness;
 /* ---------- State ---------- */
 let members = [], blocks = [], plan = {}, einsaetze = [], settings = { ...DEFAULT_SETTINGS };
 let dayModes = {}, inventory = { ...DEFAULT_INVENTORY };
-let agAttendance = {}; // { 'YYYY-MM-DD': [memberIds] } – AG-Treffen-Strichliste
+let agAttendance = {};  // { 'YYYY-MM-DD': [memberIds] } – AG-Treffen-Strichliste
 let lastSaved = null, byId = new Map(), prevPlan = null;
 
 const reindex = () => { byId = new Map(members.map(x => [x.id, x])); };
@@ -121,19 +119,30 @@ const nextMemberId = () => members.reduce((a, x) => Math.max(a, x.id), -1) + 1;
 
 /* ---------- Persistenz (.saniteam, .saniplan, .sanilog, .saniblocks) ---------- */
 function cleanMember(x) {
-  const { id, first = '', last = '', cls = '', ausb = false, springer = false, available = true, total = 0, year = 0, month = 0, team = null,
-    quali = null, ausbildungsDatum = null, kontakt = '' } = x;
-  // Qualifikations-Level: 'ausb' | 'ausbildung' | 'helfer' (abwärtskompatibel aus ausb-Flag)
-  const qualiLevel = quali || (ausb ? 'ausb' : 'helfer');
-  return { id, first, last, cls: String(cls).toLowerCase(), ausb: !!ausb, springer: !!springer, available: !!available, total: Number(total) || 0, year: Number(year) || 0, month: Number(month) || 0, team: team == null ? null : Number(team), stufe: parseInt(cls) || 0,
-    quali: qualiLevel, ausbildungsDatum: ausbildungsDatum || null, kontakt: String(kontakt || '') };
+  const { id, first = '', last = '', cls = '', springer = false, available = true, total = 0, year = 0, month = 0, team = null,
+    quali, ausbildungsStatus, ausbildungsDatum = null, kontakt = '' } = x;
+  // Alte Exporte kennen nur ausb; neue Exporte und ältere App-Versionen nutzen teils ausbildungsStatus.
+  let qualiLevel = quali || ausbildungsStatus || (x.inAusbildung === true || x.trainee === true || x.azubi === true || x.isTrainee === true ? 'ausbildung' : (x.ausb ? 'ausb' : 'helfer'));
+  if (!['ausb', 'ausbildung', 'helfer'].includes(qualiLevel)) qualiLevel = x.ausb ? 'ausb' : 'helfer';
+  const q = String(cls).toLowerCase().match(/^q([1-4])$/);
+  const grade = q ? 10 + Number(q[1]) : (parseInt(cls, 10) || 0);
+  const preferencesRaw = x.ausbilderTeams ?? x.ausbilderTeamIds ?? x.ausbilderPraeferenzen ?? [];
+  const preferences = Array.isArray(preferencesRaw) ? preferencesRaw : [];
+  const teamLabelsRaw = x.ausbilderTeamLabels ?? x.teamLabels ?? [];
+  const teamPrefsRaw = x.ausbilderTeamPrefs ?? x.ausbilderTeams?.map(id => ({ id, name: '' })) ?? [];
+  return { id, first, last, cls: String(cls).toLowerCase(), ausb: qualiLevel === 'ausb', springer: !!springer, available: !!available, total: Number(total) || 0, year: Number(year) || 0, month: Number(month) || 0, team: team == null ? null : Number(team), stufe: grade,
+    quali: qualiLevel, ausbildungsDatum: ausbildungsDatum || null, kontakt: String(kontakt || x.contact || ''),
+    ausbilderTeams: preferences.map(Number).filter(Number.isFinite),
+    ausbilderTeamLabels: Array.isArray(teamLabelsRaw) ? teamLabelsRaw : [],
+    ausbilderTeamPrefs: Array.isArray(teamPrefsRaw) ? teamPrefsRaw : [],
+    ausbilderTeamsSpecified: x.ausbilderTeamsSpecified === true || (x.ausbilderTeamsSpecified == null && preferences.length > 0) };
 }
 
 function snapshot(kind = 'all') {
   const ts = new Date().toISOString();
   if (kind === 'team') {
     return { app: 'SaniAlarm', format: 'saniteam', type: 'team', version: 2, exportedAt: ts,
-      members: members.map(({ id, first, last, cls, ausb, springer, available, total, year, month, team }) => ({ id, first, last, cls, ausb, springer, available, total, year, month, team })),
+      members: members.map(({ id, first, last, cls, ausb, springer, available, total, year, month, team, quali, ausbildungsStatus, ausbildungsDatum, kontakt, ausbilderTeams, ausbilderTeamLabels, ausbilderTeamPrefs, ausbilderTeamsSpecified }) => ({ id, first, last, cls, ausb, springer, available, total, year, month, team, quali: quali || ausbildungsStatus || (ausb ? 'ausb' : 'helfer'), ausbildungsStatus: quali || ausbildungsStatus || (ausb ? 'ausb' : 'helfer'), ausbildungsDatum: ausbildungsDatum || null, kontakt: kontakt || '', ausbilderTeams: ausbilderTeams || [], ausbilderTeamLabels: ausbilderTeamLabels || [], ausbilderTeamPrefs: ausbilderTeamPrefs || [], ausbilderTeamsSpecified: !!ausbilderTeamsSpecified })),
       settings };
   }
   if (kind === 'plan') {
@@ -147,7 +156,7 @@ function snapshot(kind = 'all') {
   }
   // Standard-Komplett-Backup (.saniteam)
   return { app: 'SaniAlarm', format: 'saniteam', type: 'all', version: 2, exportedAt: ts,
-    members: members.map(({ id, first, last, cls, ausb, springer, available, total, year, month, team }) => ({ id, first, last, cls, ausb, springer, available, total, year, month, team })),
+    members: members.map(({ id, first, last, cls, ausb, springer, available, total, year, month, team, quali, ausbildungsStatus, ausbildungsDatum, kontakt, ausbilderTeams, ausbilderTeamLabels, ausbilderTeamPrefs, ausbilderTeamsSpecified }) => ({ id, first, last, cls, ausb, springer, available, total, year, month, team, quali: quali || ausbildungsStatus || (ausb ? 'ausb' : 'helfer'), ausbildungsStatus: quali || ausbildungsStatus || (ausb ? 'ausb' : 'helfer'), ausbildungsDatum: ausbildungsDatum || null, kontakt: kontakt || '', ausbilderTeams: ausbilderTeams || [], ausbilderTeamLabels: ausbilderTeamLabels || [], ausbilderTeamPrefs: ausbilderTeamPrefs || [], ausbilderTeamsSpecified: !!ausbilderTeamsSpecified })),
     blocks, plan, history: einsaetze, settings, dayModes, inventory, agAttendance };
 }
 
@@ -212,12 +221,33 @@ function restore(data, options = {}) {
     if (data.inventory && typeof data.inventory === 'object') {
       inventory = { ...DEFAULT_INVENTORY, ...data.inventory };
     }
+    if (data.agAttendance && typeof data.agAttendance === 'object') agAttendance = { ...data.agAttendance };
+  }
+  if (mode === 'all' || mode === 'team') {
+    if (data.history != null || data.einsaetze != null || data.log != null) {
+      const hist = data.history ?? data.einsaetze ?? data.log;
+      if (Array.isArray(hist)) einsaetze = hist;
+    }
+    if (data.inventory && typeof data.inventory === 'object') inventory = { ...DEFAULT_INVENTORY, ...data.inventory };
+    if (data.dayModes && typeof data.dayModes === 'object') dayModes = { ...data.dayModes };
+    if (data.agAttendance && typeof data.agAttendance === 'object') agAttendance = { ...data.agAttendance };
   }
 
   return { mode, summary: summary.join(', ') || 'Geladen' };
 }
 
-function save() { try { localStorage.setItem(DB_KEY, JSON.stringify(snapshot('all'))); } catch (e) { /* Quota/Privatmodus */ } lastSaved = new Date(); }
+function save() {
+  const payload = JSON.stringify(snapshot('all'));
+  try {
+    localStorage.setItem(DB_KEY, payload);
+    LEGACY_DB_KEYS.forEach(key => localStorage.removeItem(key));
+    lastSaved = new Date();
+    return true;
+  } catch (e) {
+    console.error('SaniAlarm konnte nicht lokal speichern:', e);
+    return false;
+  }
+}
 
 /* ---------- Seed (Demo-Daten, Termine relativ zu heute) ---------- */
 const RAW = [
@@ -267,36 +297,44 @@ function seed() {
     const person = SS.blockedIds(b, members).map(m).find(x => x.team != null);
     if (!person || b.from < iso(TODAY)) return;
     const team = members.filter(x => x.team === person.team).map(x => x.id).slice(0, settings.perShift);
-    plan[b.from] = { team, teamId: person.team, extra: [], status: 'ok', tag: 'OK', rules: [], note: `Team ${team.map(id => m(id).first).join(' & ')}` };
+    plan[b.from] = { team, teamId: person.team, extra: [], status: 'ok', tag: 'OK', rules: [], mark: true, note: `Team ${team.map(id => m(id).first).join(' & ')}` };
   });
 }
 function emptyDb() {
   members = []; blocks = []; plan = {}; einsaetze = []; settings = { ...DEFAULT_SETTINGS, me: null };
   dayModes = {}; inventory = JSON.parse(JSON.stringify(DEFAULT_INVENTORY));
-  agAttendance = {};
   reindex();
 }
 
 function boot() {
   try {
-    const raw = localStorage.getItem(DB_KEY);
+    const primary = localStorage.getItem(DB_KEY);
+    const raw = primary || LEGACY_DB_KEYS.map(key => localStorage.getItem(key)).find(Boolean);
     if (raw) {
-      restore(JSON.parse(raw));
+      const loaded = JSON.parse(raw);
+      restore(loaded);
+      // Alte Installation übernehmen, das persistente Schema normalisieren, Migration sichern.
+      save();
       return;
     }
-  } catch (e) { /* kaputte Daten → Leere DB */ }
+  } catch (e) { console.error('SaniAlarm-Daten konnten nicht geladen werden:', e); }
   // Wenn keine Daten vorhanden sind: Starte mit sauberer, leerer Datenbank statt Fake-Seed
   emptyDb();
+  save();
 }
 
 /* ---------- Solver-Wrapper ---------- */
 function solve(y, mo, opts = {}) {
-  // Manuell gesetzte/markierte zukünftige Einträge vor dem Generator schützen
+  // Bestehende Plan-Einträge bleiben immer gesperrt; die Solver-Ausgabe enthält sie nur zum Anzeigevergleich.
   const protectedEntries = {};
-  Object.entries(plan).forEach(([k, e]) => { if (e.mark && k >= iso(TODAY)) protectedEntries[k] = e; });
-  const r = SS.solveMonth({ year: y, month: mo, members, blocks, plan, settings, today: TODAY, dayModes, ...opts });
-  Object.assign(plan, r.plan);
-  Object.entries(protectedEntries).forEach(([k, e]) => { plan[k] = e; });
+  Object.entries(plan).forEach(([k, e]) => { if (e) protectedEntries[k] = e; });
+  const r = SS.solveMonth({ year: y, month: mo, members, blocks, plan, settings, today: TODAY, dayModes,
+    locked: protectedEntries, ...opts });
+  const from = opts.from || `${y}-${String(mo + 1).padStart(2, '0')}-01`;
+  const to = opts.to || SS.iso(new Date(y, mo + 1, 0));
+  Object.entries(r.plan).forEach(([k, entry]) => {
+    if (!plan[k] && k >= from && k <= to) plan[k] = entry;
+  });
   return r.stats;
 }
 
@@ -401,19 +439,47 @@ function dissolveTeam(tid) { members.forEach(x => { if (x.team === tid) x.team =
 
 /* ---------- Mitglieder-CRUD ---------- */
 function upsertMember(data, id) {
+  const previous = id != null ? m(id) : null;
+  const incomingQuali = data.quali || data.ausbildungsStatus || (data.inAusbildung === true || data.trainee === true || data.azubi === true ? 'ausbildung' : null);
+  const legacyAusb = typeof data.ausb === 'boolean' ? data.ausb : (typeof data.isAusb === 'boolean' ? data.isAusb : undefined);
+  let quali = incomingQuali || previous?.quali || (legacyAusb === true ? 'ausb' : legacyAusb === false ? 'helfer' : null);
+  if (!['ausb', 'ausbildung', 'helfer'].includes(quali)) quali = legacyAusb === true ? 'ausb' : 'helfer';
   const clean = { first: data.first.trim(), last: data.last.trim(), cls: data.cls.trim().toLowerCase(),
-    ausb: !!data.ausb, springer: !!data.springer, available: !!data.available,
-    quali: data.quali || null, ausbildungsDatum: data.ausbildungsDatum || null, kontakt: String(data.kontakt || '') };
-  clean.stufe = parseInt(clean.cls) || 0;
-  // Oberstufen-Stufe (Q1-Q4) als 11-14 abbilden
+    ausb: quali === 'ausb', springer: !!data.springer, available: data.available !== false,
+    quali, ausbildungsStatus: quali, inAusbildung: quali === 'ausbildung',
+    ausbildungsDatum: data.ausbildungsDatum ?? previous?.ausbildungsDatum ?? null,
+    kontakt: String(data.kontakt ?? previous?.kontakt ?? ''),
+    ausbilderTeams: Array.isArray(data.ausbilderTeams) ? data.ausbilderTeams.map(Number).filter(Number.isFinite) : (previous?.ausbilderTeams || []),
+    ausbilderTeamLabels: Array.isArray(data.ausbilderTeamLabels) ? data.ausbilderTeamLabels : (previous?.ausbilderTeamLabels || []),
+    ausbilderTeamPrefs: Array.isArray(data.ausbilderTeamPrefs) ? data.ausbilderTeamPrefs : (previous?.ausbilderTeamPrefs || []),
+    ausbilderTeamsSpecified: data.ausbilderTeamsSpecified ?? previous?.ausbilderTeamsSpecified ?? false };
+  clean.stufe = parseInt(clean.cls) || 0; // "10-2" → 10; "q1" → 0 (Oberstufe)
+  // Oberstufen-Stufe (Q1-Q4) als 11-14 abbilden, damit Stufen-Sperren und Sortierung greifen
   const q = clean.cls.match(/^q([1-4])$/);
   if (q) clean.stufe = 10 + parseInt(q[1]);
   if (id == null) {
     const x = { id: nextMemberId(), total: 0, year: 0, month: 0, team: null, ...clean };
     members.push(x); reindex(); save(); return x;
   }
-  Object.assign(m(id), clean); save(); return m(id);
+  Object.assign(m(id), clean); reindex(); save(); return m(id);
 }
+
+// Debug-/Regression-API für lokale Tests, ohne die UI zu verändern.
+window.SaniPlanerData = Object.freeze({
+  get members() { return members.map(x => ({ ...x })); },
+  get plan() { return JSON.parse(JSON.stringify(plan)); },
+  get settings() { return { ...settings }; },
+  upsertMember,
+  snapshot,
+  restore,
+  generate: (from, to) => {
+    const a = SS.parse(from), b = SS.parse(to);
+    if (Number.isNaN(+a) || Number.isNaN(+b) || from > to) throw new Error('Ungültiger Planungszeitraum');
+    const stats = solve(a.getFullYear(), a.getMonth(), { from, to });
+    save();
+    return { stats, plan: JSON.parse(JSON.stringify(plan)) };
+  }
+});
 function deleteMember(id) {
   const x = m(id); if (!x) return;
   const t = x.team;

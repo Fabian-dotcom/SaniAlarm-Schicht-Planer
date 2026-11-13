@@ -30,9 +30,11 @@
   const isSchool = d => d.getDay() > 0 && d.getDay() < 6;
   const weekKey = d => iso(addDays(d, -((d.getDay() + 6) % 7)));
   const stufeOf = m => m.stufe != null ? +m.stufe : parseInt(m.cls, 10);
-  // Rollen: ausgebildet (ausb) vs in Ausbildung (trainee)
-  const isTrainee = m => m.quali === 'ausbildung';
-  const isAusb = m => m.quali === 'ausb' || (m.ausb && m.quali !== 'helfer');
+  // Rollen: ausgebildet (AUSB) vs in Ausbildung (trainee); alte Backups haben nur Flag-Felder.
+  const isTrainee = m => m.quali === 'ausbildung' || m.ausbildungsStatus === 'ausbildung'
+    || m.inAusbildung === true || m.trainee === true || m.azubi === true || m.isTrainee === true;
+  const isAusb = m => !isTrainee(m) && (m.quali === 'ausb' || m.ausbildungsStatus === 'ausb'
+    || (m.ausb && m.quali !== 'helfer'));
 
   /* Strafkosten: Sperrtage haben keine Kosten, weil sie gar nicht erst in der Domäne vorkommen */
   const PEN = { wd: 20, week: 60, fm: 80, sprWeek: 30, sprOnly: 40, missing: 150, none: 1000, extra: 2 };
@@ -120,18 +122,27 @@
     const byId = new Map(members.map(m => [m.id, m]));
     const teams = buildTeams(members);
     const todayK = iso(today);
-    const len = new Date(year, month + 1, 0).getDate();
+    const fromK = o.from || `${year}-${pad(month + 1)}-01`;
+    const toK = o.to || iso(new Date(year, month + 1, 0));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fromK) || !/^\d{4}-\d{2}-\d{2}$/.test(toK) || fromK > toK) {
+      throw new Error('Ungültiger Planungszeitraum');
+    }
 
-    /* --- Variablen: Tage, die (neu) berechnet werden; vergangene Tage mit Plan bleiben fix --- */
+    /* --- Variablen: nur leere Tage im ausgewählten Zeitraum; bestehende Pläne bleiben fix --- */
     const days = [], solveKeys = new Set();
-    for (let i = 1; i <= len; i++) {
-      const d = new Date(year, month, i);
+    const lockedMap = o.locked || {};   // { key: entry } – händisch gesetzte Tage (immer Vorrang)
+    const rangeStart = parse(fromK), rangeEnd = parse(toK);
+    const boundedStart = rangeStart < today ? new Date(today) : rangeStart;
+    for (let d = boundedStart; d <= rangeEnd; d = addDays(d, 1)) {
       if (!isSchool(d)) continue;
       const k = iso(d);
-      if (k < todayK && plan[k]) continue;
+      if (k < todayK) continue;
+      if (plan[k]) continue;           // jeder bestehende Eintrag bleibt unverändert
+      if (lockedMap[k]) continue;      // händisch vorbelegt → wird NICHT neu berechnet
       const modeKey = dayModes[k] || 'normal';
       const per = modeKey === 'event' ? Math.max(defaultPer, 4) : defaultPer;
-      days.push({ d, k, wk: weekKey(d), wd: d.getDay(), ym: `${year}-${month}`,
+      const ym = `${d.getFullYear()}-${d.getMonth()}`;
+      days.push({ d, k, wk: weekKey(d), wd: d.getDay(), ym,
         fri: iso(addDays(d, -3)), mon: iso(addDays(d, 3)), modeKey, per });
       solveKeys.add(k);
     }
@@ -164,7 +175,7 @@
     });
 
     /* --- Nutzungszähler (mit Undo) --- */
-    const U = { week: new Map(), wd: new Map(), day: new Map(), spr: new Map(), cnt: new Map() };
+    const U = { week: new Map(), wd: new Map(), day: new Map(), spr: new Map(), cnt: new Map(), trainee: new Map() };
     const get = (m, k) => m.get(k) || 0;
     const inc = (m, k, v) => { const n = get(m, k) + v; if (n) m.set(k, n); else m.delete(k); };
     const meta = d => ({ wk: weekKey(d), wd: d.getDay(), ym: `${d.getFullYear()}-${d.getMonth()}`, k: iso(d) });
@@ -175,13 +186,28 @@
         inc(U.day, e.teamId + '|' + m.k, s);
         inc(U.cnt, e.teamId, s);
       }
-      (e.extra || []).forEach(id => inc(U.spr, id + '|' + m.wk, s));
+      (e.extra || []).forEach(id => {
+        inc(U.spr, id + '|' + m.wk, s);
+        if (isTrainee(byId.get(id) || {})) inc(U.trainee, id, s);
+      });
     }
     // bereits bestehende Einträge außerhalb des Lösungsraums (Vergangenheit, Nachbarmonate) wirken als Randbedingung
     Object.entries(plan).forEach(([k, e]) => { if (!solveKeys.has(k)) apply(e, meta(parse(k)), 1); });
 
+    /* --- Wochenvorziehung: spätere Sperren bevorzugen passende frühe Tage --- */
+    const pressBonus = new Map();
+    if (!o.ignoreBlocks) members.forEach(mm => {
+      let late = 0, early = 0;
+      days.forEach(day => {
+        if (day.wd < 1 || day.wd > 5) return;
+        if (blockedMap(day.d, blocks, members).has(mm.id)) { if (day.wd >= 4) late++; else early++; }
+      });
+      pressBonus.set(mm.id, late - early);
+    });
+
     /* --- Multi-Faktor-Score P_i = wF*F + wR*R + wS*S + wK*K + wT*T (Gewichte aus Settings) --- */
     const W = { f: settings.wF ?? 0.35, r: settings.wR ?? 0.25, s: settings.wS ?? 0.20, k: settings.wK ?? 0.10, t: settings.wT ?? 0.10 };
+    // pressBonus wird aus den konkreten Tagen dieses Generierungszeitraums berechnet.
     const todayTs = +today;
     // Historische Daten pro Person: letzte Dienst-Tage + Springer-Einsätze + Sperrtage (Klausurdruck)
     const lastDuty = new Map(), sprCount = new Map();
@@ -217,8 +243,9 @@
       const T = prev30 ? Math.min(2, base / prev30) / 2 : 1;
       return W.f * F + W.r * R + W.s * S + W.k * K + W.t * T;
     }
-    const piCache = new Map();
+    let piCache = new Map();
     const pi = id => { if (!piCache.has(id)) piCache.set(id, piScore(id)); return piCache.get(id); };
+    const piRefresh = () => { piCache = new Map(); };
 
     /* --- Domäne eines Tages unter dem aktuellen Zustand --- */
     function options(day) {
@@ -229,9 +256,10 @@
       const curPer = day.per;
       for (const c of day.cands) {
         const t = c.t, viol = []; let cost = 0;
-        if (get(U.week, t.id + '|' + day.wk) > 0) { viol.push('week'); cost += PEN.week; }
-        if (settings.weekday && get(U.wd, t.id + '|' + day.ym + '|' + day.wd) > 0) { viol.push('wd'); cost += PEN.wd; }
-        if (settings.friMon) {
+        const sameWeek = get(U.week, t.id + '|' + day.wk) > 0;
+        if (sameWeek) { viol.push('week'); cost += PEN.week; }
+        if (!sameWeek && settings.weekday && get(U.wd, t.id + '|' + day.ym + '|' + day.wd) > 0) { viol.push('wd'); cost += PEN.wd; }
+        if (!sameWeek && settings.friMon) {
           const other = day.wd === 1 ? day.fri : day.wd === 5 ? day.mon : null;
           if (other && get(U.day, t.id + '|' + other) > 0) { viol.push('fm'); cost += PEN.fm; }
         }
@@ -251,34 +279,53 @@
           // wenn beide verfügbar sind, kommen sie gemeinsam (Partner-Bonus) in die Schicht;
           // ist nur ein Platz frei, gewinnt der Trainee mit dem größten Bedarf
           // (wenigste Dienste = am längsten nicht dran = höchste Fairness-Priorität).
-          const traineeDue = t => -(t.total || 0) - (piCache.get(t.id) !== undefined ? 0 : 0); // niedriger Score zuerst
+          const maxTrainees = Math.max(0, settings.traineesPerShift ?? 2);
+          const traineeCount = () => team.filter(id => isTrainee(byId.get(id) || {})).length;
           const ranked = auxPool
             .filter(a => !team.includes(a.s.id))
+            .filter(a => a.kind !== 'trainee' || !a.s.ausbilderTeamsSpecified || a.s.ausbilderTeams.includes(t.id))
+            .filter(a => a.kind !== 'trainee' || traineeCount() < maxTrainees)
             .map(a => ({ ...a, used: usedWeek(a.s.id) }))
             .sort((a, b) => {
               const rank = k => k === 'aux' ? 0 : k === 'spr' ? 1 : 2;
               const due = (x, y) => x.kind === 'trainee' && y.kind === 'trainee'
-                ? (x.s.total - y.s.total)              // am wenigsten Dienste zuerst
+                ? (get(U.trainee, x.s.id) - get(U.trainee, y.s.id)) || (x.s.total - y.s.total)
                 : 0;
               return (a.used - b.used) || (rank(a.kind) - rank(b.kind)) || due(a, b) || (a.s.total - b.s.total);
             });
-          // Trainee-Duo-Bonus: wenn ein Trainee gewählt wird und sein Partner (gleiche team-ID,
-          // ebenfalls Trainee, verfügbar) noch in den nächsten Slots passt, zieht er mit nach
+          // Trainee-Duos nur gemeinsam einplanen, wenn sowohl maxShift als auch
+          // traineesPerShift die gesamte Gruppe aufnehmen können.
+          const maxAdd = Math.max(0, day.maxShift - team.length);
           const traineePartners = new Map();
           members.forEach(mm => { if (isTrainee(mm) && mm.team != null) {
-            const duo = members.filter(x => x.team === mm.team && isTrainee(x) && x.id !== mm.id);
+            const duo = members.filter(x => x.team === mm.team && isTrainee(x) && x.id !== mm.id
+                && x.available && !day.blocked.has(x.id));
             if (duo.length) traineePartners.set(mm.id, duo.map(x => x.id));
           }});
+          // Ganze Azubi-Gruppe (Duo) nur nehmen, wenn sie ins Limit passt und
+          // das Ziel-Team daraus noch Platz bietet – sonst einzelner Trainee.
+          const duoFits = (p) => {
+            if (p.kind !== 'trainee' || (p.s.ausbilderTeamsSpecified && !p.s.ausbilderTeams.includes(t.id))) return false;
+            const partners = (traineePartners.get(p.s.id) || []).filter(pid => !team.includes(pid) && !day.blocked.has(pid) && byId.get(pid)?.available
+              && (!byId.get(pid).ausbilderTeamsSpecified || byId.get(pid).ausbilderTeams.includes(t.id)));
+            return partners.length > 0 && traineeCount() + 1 + partners.length <= maxTrainees
+              && (1 + partners.length) <= (day.maxShift - team.length - taken);
+          };
           let taken = 0;
           for (let i = 0; i < ranked.length && taken < limit; i++) {
             const p = ranked[i];
             if (!p || team.includes(p.s.id)) continue;
+            if (p.kind === 'trainee' && traineeCount() >= maxTrainees) continue;
             team.push(p.s.id); extra.push(p.s.id); taken++;
-            if (p.kind === 'trainee' && allowTraineeBonus) cost -= 4; // Mentoring: Trainee gerne dazu
+            if (p.kind === 'trainee' && allowTraineeBonus) {
+              cost -= 4;
+              if (p.s.ausbilderTeamsSpecified && p.s.ausbilderTeams.includes(t.id)) cost -= 8;
+              cost += get(U.trainee, p.s.id) * 8;
+            } // Mentoring, Präferenz und Rotation
             else cost += PEN.extra;
             if (p.used) { if (!viol.includes('sprWeek')) viol.push('sprWeek'); cost += PEN.sprWeek; }
             // Lieblingspartner (Trainee-Duo) mitnehmen, wenn noch Platz ist
-            if (p.kind === 'trainee' && taken < limit) {
+            if (p.kind === 'trainee' && duoFits(p)) {
               const partners = (traineePartners.get(p.s.id) || [])
                 .filter(pid => !team.includes(pid) && !day.blocked.has(pid))
                 .map(pid => ({ pid, mm: byId.get(pid) }))
@@ -293,13 +340,23 @@
           return taken;
         };
         let filled = 0;
-        if (need > 0) filled = fillUp(need, true);
-        else if (day.traineePool.length) filled = fillUp(Math.min(2, day.maxShift - team.length), true);
-        else if (day.ausbSpringers.length) filled = fillUp(Math.min(1, day.maxShift - team.length), false);
+        // Azubi-Anbindung: Trainees bevorzugt an Teams mit genug freiem Platz
+        // (ganze 2er-Gruppe braucht z. B. 2 freie Plätze neben dem erfahrenen Team).
+        const roomFor = Math.max(0, day.maxShift - team.length);
+        if (need > 0) filled = fillUp(Math.min(need, roomFor), true);
+        else if (day.traineePool.length) filled = fillUp(Math.min(2, roomFor), true);
+        else if (day.ausbSpringers.length) filled = fillUp(Math.min(1, roomFor), false);
         if (need > 0 && filled < need) missing = need - filled;
         cost += missing * PEN.missing;
         // Fairness: durchschnittlicher P_i-Score des Teams (dezent skaliert, Regelkosten dominieren)
-        cost += t.ids.reduce((a, id) => a + pi(id), 0) / Math.max(1, t.ids.length) * 8;
+        let teamCost = t.ids.reduce((a, id) => a + pi(id), 0) / Math.max(1, t.ids.length) * 8;
+        teamCost += get(U.cnt, t.id) * 5; // Einsatz-Rotation über alle neu berechneten Tage
+        const prefTrainees = members.filter(mm => isTrainee(mm) && mm.available
+          && mm.ausbilderTeamsSpecified && mm.ausbilderTeams.includes(t.id));
+        if (prefTrainees.length) teamCost -= Math.max(0, 3 - prefTrainees.reduce((n, mm) => n + get(U.trainee, mm.id), 0)) * 40;
+        // Pressung: Teams mit Do/Fr-blockierten Mitgliedern früher priorisieren (Wochenvorziehung)
+        teamCost -= t.ids.reduce((a, id) => a + (pressBonus.get(id) || 0), 0) / Math.max(1, t.ids.length) * 1.5;
+        cost += teamCost;
         cost += ((t.id * 7 + day.d.getDate()) % 11) * 0.001;               // deterministischer Tie-Break
         out.push({ team, teamId: t.id, extra, viol, missing, cost, sprOnly: false });
       }
@@ -324,7 +381,7 @@
     let best = { cost: Infinity, sel: null }, nodes = 0, aborted = false;
 
     function dfs(cost, remaining) {
-      if (!remaining.length) { if (cost < best.cost) best = { cost, sel: sel.slice() }; return; }
+      if (!remaining.length) { if (cost < best.cost) { best = { cost, sel: sel.slice() }; piRefresh(); } return; }
       nodes++;
       if (best.sel && (nodes > budget || Date.now() - t0 > timeMs)) { aborted = true; return; }
       let lb = 0, pick = -1, pickOpts = null, pickScore = Infinity, pickMin = 0;
@@ -367,9 +424,14 @@
       else if (e.tag === 'REG' || (e.rules && e.rules.length)) relaxed++;
       if (/^\d\//.test(e.tag) && e.status === 'warn') understaffed++;
     });
+    // Bereits vorhandene Tage unverändert in die Ausgabe übernehmen.
+    Object.entries(plan).forEach(([k, e]) => { out[k] = e; });
+    Object.entries(lockedMap).forEach(([k, e]) => { out[k] = e; });
     return { plan: out, stats: { days: days.length, relaxed, understaffed, open,
       cost: best.cost === Infinity ? 0 : Math.round(best.cost * 100) / 100, nodes, aborted, ms: Date.now() - t0 } };
   }
+  /* Mit jeder Neuberechnung frisch bewertet: die Tages-Statistik (lastDuty/pi-Score) wird
+     zu Beginn von solveMonth aus dem Ist-Zustand neu aufgebaut – kein veralteter Zwischenstand. */
 
   return { solveMonth, blockedIds, blockedMap, buildTeams, fairness, iso, parse, addDays, isSchool, weekKey, stufeOf, PEN, LABEL };
 });

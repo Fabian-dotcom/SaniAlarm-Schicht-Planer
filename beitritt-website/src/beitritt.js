@@ -44,13 +44,31 @@ export function normalizePerson(formData) {
     nachname: String(formData.nachname ?? "").trim(),
     stufe: String(formData.stufe ?? "").trim(),
     klasse: String(formData.klasse ?? "").trim(),
+    kontakt: String(formData.kontakt ?? "").trim(),
+    // Ausbildungs-Status: 'helfer' | 'ausbildung' | 'ausb'
+    ausbildungsStatus: String(formData.ausbildungsStatus ?? "helfer").trim(),
+    // Angenommene Ausbilder-Teams (IDs aus dem QR-Link); leer = alle abgelehnt.
+    ausbilderTeams: Array.isArray(formData.ausbilderTeams)
+      ? formData.ausbilderTeams.map((t) => Number(t)).filter((n) => Number.isFinite(n))
+      : [],
+    // Erlaubte/akzeptierte Teams (Checkbox-Auswahl) unverändert separat mitführen.
+    ausbilderTeamIds: Array.isArray(formData.ausbilderTeamIds)
+      ? formData.ausbilderTeamIds.map((t) => Number(t)).filter((n) => Number.isFinite(n))
+      : Array.isArray(formData.ausbilderTeams) ? formData.ausbilderTeams.map(Number).filter(Number.isFinite) : [],
+    ausbilderTeamsSpecified: formData.ausbilderTeamsSpecified !== false,
+    ausbilderTeamLabels: Array.isArray(formData.ausbilderTeamLabels)
+      ? formData.ausbilderTeamLabels.map(([id, label]) => [Number(id), String(label).slice(0, 160)]).filter(([id, label]) => Number.isFinite(id) && label)
+      : [],
+    ausbilderTeamPrefs: Array.isArray(formData.ausbilderTeamPrefs)
+      ? formData.ausbilderTeamPrefs.map((entry) => ({ id: Number(entry?.id), name: String(entry?.name ?? '').slice(0, 160) })).filter(({ id, name }) => Number.isInteger(id) && name)
+      : [],
   };
 
   if (!person.vorname) {
     throw new Error("Bitte gib mindestens deinen Vornamen an.");
   }
   if (person.vorname.length > 80 || person.nachname.length > 100 ||
-      person.stufe.length > 20 || person.klasse.length > 20) {
+    person.stufe.length > 20 || person.klasse.length > 20 || person.kontakt.length > 200) {
     throw new Error("Mindestens eine Angabe ist zu lang.");
   }
 
@@ -75,8 +93,8 @@ export async function encodeResponse(person, secret) {
 
 export async function decodeResponse(encoded, secret) {
   if (typeof encoded !== "string" ||
-      !encoded.startsWith(RESPONSE_PREFIX) ||
-      encoded.length > MAX_PAYLOAD_LENGTH) {
+    !encoded.startsWith(RESPONSE_PREFIX) ||
+    encoded.length > MAX_PAYLOAD_LENGTH) {
     throw new Error("Ungültiger SaniAlarm-Antwortcode.");
   }
 
@@ -99,8 +117,8 @@ export async function decodeResponse(encoded, secret) {
     );
     const person = JSON.parse(new TextDecoder().decode(plainText));
     if (person?.typ !== "person" ||
-        typeof person.vorname !== "string" || !person.vorname.trim() ||
-        typeof person.nachname !== "string") {
+      typeof person.vorname !== "string" || !person.vorname.trim() ||
+      typeof person.nachname !== "string") {
       throw new Error("Der QR-Code enthält kein gültiges Beitrittsformular.");
     }
     return person;

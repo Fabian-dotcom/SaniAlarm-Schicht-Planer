@@ -88,7 +88,21 @@ t('Alle Teams gesperrt → "bad" statt Sperrtag zu brechen', () => {
 });
 t('Vergangene Tage mit Plan bleiben unverändert', () => {
   const plan = { '2026-11-09': { team: [0, 3], teamId: 1, extra: [], status: 'ok', tag: 'OK', note: '' } };
-  const r = run({ plan }); assert(!('2026-11-09' in r.plan));
+  const r = run({ plan }); assert.deepStrictEqual(r.plan['2026-11-09'], plan['2026-11-09']);
+});
+t('Jeder bestehende Eintrag bleibt bestehen und wird nie überschrieben', () => {
+  const existing = { team: [4, 20], teamId: 3, extra: [], status: 'ok', tag: 'OK', note: 'händisch' };
+  const plan = { '2026-11-12': existing };
+  const r = run({ plan });
+  assert.deepStrictEqual(r.plan['2026-11-12'], existing);
+  assert(Object.prototype.hasOwnProperty.call(r.plan, '2026-11-11'));
+});
+t('Datumsbereich plant nur den gewählten Teil und lässt bestehende Tage fix', () => {
+  const existing = { team: [4, 20], teamId: 3, extra: [], status: 'ok', tag: 'OK', note: 'fix' };
+  const r = S.solveMonth({ year: 2026, month: 10, members: mk(), blocks: [], plan: { '2026-11-12': existing }, settings: settings(), today: TODAY, from: '2026-11-16', to: '2026-11-20' });
+  assert.deepStrictEqual(r.plan['2026-11-12'], existing);
+  assert.strictEqual(r.stats.days, 5);
+  assert.deepStrictEqual(Object.keys(r.plan).filter(k => k >= '2026-11-16' && k <= '2026-11-20').sort(), ['2026-11-16','2026-11-17','2026-11-18','2026-11-19','2026-11-20']);
 });
 t('Bestehende Nachbarwochen wirken als Randbedingung (Woche über Monatsgrenze)', () => {
   // Team 1 hat Mo 30.11. (Woche des 27.11.? nein: KW 49) → im Dezember darf es in dieser Woche nicht nochmal
@@ -105,6 +119,35 @@ t('Deterministisch', () => { assert.deepStrictEqual(run({ blocks: BLOCKS }).plan
 t('perShift=3 füllt mit Springern, max. Teamgröße 3 wird nicht überschritten', () => {
   const s = settings(); s.perShift = 3; const r = run({ blocks: BLOCKS, settings: s });
   Object.values(r.plan).forEach(e => assert(e.team.length <= 3));
+});
+t('Azubi-Gruppen werden bis zum Schichtlimit einem AUSB-Team zugeteilt und rotieren', () => {
+  const members = [
+    { id: 0, first: 'Ausbilder', last: 'A', cls: '10a', ausb: true, available: true, total: 0, team: 1 },
+    { id: 1, first: 'Team', last: 'B', cls: '10b', ausb: false, available: true, total: 0, team: 1 },
+    { id: 2, first: 'Ausbilder', last: 'C', cls: '10c', ausb: true, available: true, total: 0, team: 2 },
+    { id: 3, first: 'Team', last: 'D', cls: '10d', ausb: false, available: true, total: 0, team: 2 },
+    { id: 4, first: 'Azubi', last: 'Eins', cls: '7a', ausb: false, quali: 'ausbildung', available: true, total: 0, team: 3, ausbilderTeams: [1, 2], ausbilderTeamsSpecified: true },
+    { id: 5, first: 'Azubi', last: 'Zwei', cls: '7b', ausb: false, quali: 'ausbildung', available: true, total: 0, team: 3, ausbilderTeams: [1, 2], ausbilderTeamsSpecified: true }
+  ];
+  const s = { ...settings(), maxShift: 4, traineesPerShift: 2 };
+  const r = S.solveMonth({ year: 2026, month: 10, members, blocks: [], plan: {}, settings: s, today: TODAY, from: '2026-11-16', to: '2026-11-20' });
+  const entries = Object.values(r.plan).filter(e => e.teamId != null);
+  assert(entries.some(e => e.team.includes(4) && e.team.includes(5)), 'Azubi-Duo soll gemeinsam eingeteilt werden');
+  assert(entries.every(e => e.team.length <= 4));
+  assert(new Set(entries.filter(e => e.team.includes(4) || e.team.includes(5)).map(e => e.teamId)).size > 1, 'Azubis sollen zwischen bevorzugten Ausbilder-Teams rotieren');
+});
+t('Azubi-Duo wird bei maximaler Schichtgröße 3 in passende Teamgröße getrennt', () => {
+  const members = [
+    { id: 0, first: 'Ausbilder', last: 'A', cls: '10a', ausb: true, available: true, total: 0, team: 1 },
+    { id: 1, first: 'Team', last: 'B', cls: '10b', ausb: false, available: true, total: 0, team: 1 },
+    { id: 2, first: 'Ausbilder', last: 'C', cls: '10c', ausb: true, available: true, total: 0, team: 2 },
+    { id: 3, first: 'Azubi', last: 'Eins', cls: '7a', ausb: false, quali: 'ausbildung', available: true, total: 0, team: 3 },
+    { id: 4, first: 'Azubi', last: 'Zwei', cls: '7b', ausb: false, quali: 'ausbildung', available: true, total: 0, team: 3 }
+  ];
+  const s = { ...settings(), maxShift: 3, traineesPerShift: 2 };
+  const r = S.solveMonth({ year: 2026, month: 10, members, blocks: [], plan: {}, settings: s, today: TODAY, from: '2026-11-16', to: '2026-11-20' });
+  Object.values(r.plan).forEach(e => assert(e.team.length <= 3));
+  assert(Object.values(r.plan).some(e => e.team.length === 3 && e.team.some(id => id === 3 || id === 4)), 'Azubi(s) sollen an das 1er-Team gehängt werden');
 });
 t('Laufzeit < 2 s', () => { const r = run({ blocks: BLOCKS }); assert(r.stats.ms < 2000, r.stats.ms + 'ms'); });
 /* ---------- Tests für Datenpersistenz & Formate (.saniteam, .saniplan, .sanilog, .saniblocks) ---------- */

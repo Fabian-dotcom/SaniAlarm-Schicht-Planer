@@ -15,12 +15,21 @@ test("antwortcode ist UTF-8-sicher und mit dem Einladungsgeheimnis verschlüssel
     nachname: "Müller",
     stufe: "10",
     klasse: "2",
+    ausbildungsStatus: "ausbildung",
+    ausbilderTeams: [1, 3],
+    ausbilderTeamLabels: [[1, "Team 1 · Trainerin & Trainer"], [3, "Team 3"]],
+    ausbilderTeamPrefs: [{ id: 1, name: "Team 1 · Trainerin & Trainer" }],
   });
   const code = await encodeResponse(person, SECRET);
 
   assert.ok(code.startsWith(RESPONSE_PREFIX));
   assert.notEqual(code.includes("Müller"), true);
   assert.deepEqual(await decodeResponse(code, SECRET), person);
+  const roundTrip = await decodeResponse(code, SECRET);
+  assert.equal(roundTrip.ausbildungsStatus, "ausbildung");
+  assert.deepEqual(roundTrip.ausbilderTeams, [1, 3]);
+  assert.match(roundTrip.ausbilderTeamLabels[0][1], /Trainerin/u);
+  assert.deepEqual(roundTrip.ausbilderTeamPrefs, [{ id: 1, name: "Team 1 · Trainerin & Trainer" }]);
 });
 
 test("kurzer 24-Byte-Hex-Schlüssel aus der App funktioniert (SHA-256-Ableitung)", async () => {

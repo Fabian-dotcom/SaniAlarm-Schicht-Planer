@@ -43,6 +43,10 @@ h2{font-size:17px;font-weight:600;letter-spacing:-.2px}
 .head-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 
 /* ---------- Buttons / Inputs ---------- */
+.plan-range{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin:-10px 0 18px;padding:12px 14px;background:var(--surface);border:1px solid #E5E3DA;border-radius:14px}
+.plan-range label{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.plan-range .inp{width:auto;height:36px;font-size:14px}
+.plan-range .muted-s{margin-left:auto}
 .btn{height:44px;border-radius:99px;padding:0 20px;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:500;font-size:14.5px;transition:background .15s,transform .1s;white-space:nowrap}
 .btn:active{transform:scale(.98)}
 .btn.primary{background:var(--blue);color:#fff;box-shadow:0 8px 20px rgba(0,123,255,.28)}
@@ -395,6 +399,7 @@ dialog::backdrop{background:rgba(0,0,0,.42);backdrop-filter:blur(2px)}
 .ag-checkgrid .c-box span{display:flex;align-items:center;gap:8px}
 .rank{width:26px;height:26px;border-radius:50%;background:var(--soft);display:inline-grid;place-items:center;font-weight:700;font-size:.8rem;flex-shrink:0}
 .prow .rank{margin-right:4px}
-.info-tip{width:14px;height:14px;vertical-align:-2px;margin-left:4px;cursor:help;color:var(--muted);opacity:.7}
-.info-tip:hover{opacity:1;color:var(--purple)}
+.info-tip{width:22px;height:22px;padding:3px;border:0;background:transparent;vertical-align:middle;margin-left:4px;cursor:pointer;color:var(--muted);opacity:.7;display:inline-grid;place-items:center}
+.info-tip svg{width:15px;height:15px;pointer-events:none}
+.info-tip:hover,.info-tip:focus-visible{opacity:1;color:var(--purple)}
 .stat .lbl{display:flex;align-items:center}

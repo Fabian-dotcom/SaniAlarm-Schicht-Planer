@@ -52,8 +52,9 @@ function closeModal() {
 }
 modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
 modal.addEventListener('close', () => { modalRefresh = null; });
-function confirmBox(title, text, okLabel, onOk) {
+function confirmBox(title, text, okLabel, onOk, details = null) {
   openModal(`<h3 id="mTitle">${esc(title)}</h3><p class="lead">${esc(text)}</p>
+    ${details ? `<details class="confirm-details" style="margin:10px 0 0;border:1px solid var(--border,#444);border-radius:8px;padding:8px 12px"><summary style="cursor:pointer;font-weight:600">Warum kommt diese Warnung?</summary><div style="margin-top:8px;font-size:.9em;color:var(--muted,#aaa);white-space:pre-line">${esc(details)}</div></details>` : ''}
     <div class="modal-actions"><button class="btn ghost" data-close>Abbrechen</button><button class="btn danger" id="cfOk"><i data-lucide="trash-2"></i>${esc(okLabel)}</button></div>`);
   $('#cfOk').onclick = () => { closeModal(); onOk(); };
 }
@@ -222,6 +223,7 @@ function renderDetail() {
       <div class="team">${info.team.length ? info.team.map(id => m(id) ? `<span class="chip-person ${info.hit.includes(id) ? 'hit' : ''}">${av(m(id))}${esc(short(m(id)))}${info.extra?.includes(id) ? ' <span class="badge spr">SPR</span>' : ''}${m(id).ausb ? ' <span class="badge">AUSB</span>' : ''}</span>` : '').join('') : '<span class="muted-s">Noch niemand eingeteilt</span>'}</div>`;
   }
   if (bl.length) html += `<div class="sub-h" style="margin-top:14px">Sperrtage &amp; Stundenblöcke <small>${bl.length}</small></div>${bl.map(blockRow).join('')}`;
+  if (info && !info.mark) html += `<div class="form-row" style="margin-top:12px"><button class="btn ghost wide" id="lockCurrentDay"><i data-lucide="lock"></i>Tag manuell fixieren</button></div>`;
   html += `<div class="form-row" style="margin-top:12px"><button class="btn ghost wide" data-new-block="${iso(d)}"><i data-lucide="calendar-x"></i>Sperre für diesen Tag</button></div>`;
   el.innerHTML = html;
   $('#dayModeSel').onchange = e => {
@@ -229,6 +231,8 @@ function renderDetail() {
     renderAll();
     toast(`Tages-Modus auf „${DAY_MODES[e.target.value]?.label}“ gesetzt`);
   };
+  const lockDay = $('#lockCurrentDay');
+  if (lockDay) lockDay.onclick = () => { if (plan[iso(d)]) { plan[iso(d)].mark = true; save(); renderAll(); toast('Tag ist jetzt manuell fixiert'); } };
   icons();
 }
 
@@ -245,30 +249,55 @@ function renderLoad() {
       <div class="track"><div class="fill" style="width:${c / max * 100}%;background:${c === max && max > 2 ? 'var(--orange)' : 'var(--purple)'}"></div></div></div>`; }).join('')
     : '<p class="muted">Noch kein Plan für diesen Monat.</p>';
 }
-function renderDashboard() { renderHeader(); renderStats(); renderNext(); renderCal(); renderDetail(); renderBlockList(); renderLoad(); renderAgDayCard(); icons(); }
+function renderDashboard() { syncGenerateRange(); renderHeader(); renderStats(); renderNext(); renderCal(); renderDetail(); renderBlockList(); renderLoad(); renderAgDayCard(); icons(); }
+
+function syncGenerateRange() {
+  const from = $('#generateFrom'), to = $('#generateTo');
+  if (!from || !to) return;
+  const monthKey = `${viewMonth.getFullYear()}-${viewMonth.getMonth()}`;
+  const first = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
+  const last = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0);
+  if (from.dataset.month !== monthKey) {
+    from.value = iso(first < TODAY ? TODAY : first);
+    to.value = iso(last);
+    from.dataset.month = to.dataset.month = monthKey;
+  } else if (!from.value || !to.value) {
+    from.value = iso(first < TODAY ? TODAY : first);
+    to.value = iso(last);
+  }
+}
 
 $('#prevM').onclick = () => { viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1); renderDashboard(); };
 $('#nextM').onclick = () => { viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1); renderDashboard(); };
 $('#todayBtn').onclick = () => { viewMonth = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1); selected = new Date(TODAY); renderDashboard(); };
+$('#generateFrom').onchange = () => { const to = $('#generateTo'); if (to.value && $('#generateFrom').value > to.value) to.value = $('#generateFrom').value; };
+$('#generateTo').onchange = () => { const from = $('#generateFrom'); if (from.value && $('#generateTo').value < from.value) from.value = $('#generateTo').value; };
 $('#blockBtn').onclick = () => openBlockModal({ date: isSchool(selected) ? iso(selected) : undefined });
 $('#exportBtn').onclick = openExport;
 
 /* ---------- Plan generieren (Backtracking-Solver) ---------- */
+// Für das Einstellungs-Popup: programmatisch denselben Flow wie Klick auf #generate auslösen
+window.regeneratePlan = () => { const b = $('#generate'); if (b && !b.disabled) b.click(); };
 $('#generate').onclick = () => {
   const y = viewMonth.getFullYear(), mo = viewMonth.getMonth();
-  const before = {}; monthDays(y, mo).forEach(d => before[iso(d)] = evaluate(d));
-  const openBefore = openIn(y, mo), btn = $('#generate');
+  syncGenerateRange();
+  const from = $('#generateFrom').value, to = $('#generateTo').value;
+  if (!from || !to || from > to) { toast('Bitte einen gültigen Zeitraum von/bis wählen', true); return; }
+  const rangeDays = [];
+  for (let d = parse(from); iso(d) <= to; d = addDays(d, 1)) if (isSchool(d) && d >= TODAY && d.getMonth() === mo && d.getFullYear() === y) rangeDays.push(d);
+  const before = {}; rangeDays.forEach(d => before[iso(d)] = evaluate(d));
+  const openBefore = rangeDays.filter(d => evaluate(d)?.status === 'bad').length, btn = $('#generate');
   btn.disabled = true; btn.innerHTML = `<i data-lucide="loader-circle" class="spin"></i><span>Prüfe Regeln &amp; Sperrtage …</span>`; icons();
   setTimeout(() => {
     prevPlan = JSON.parse(JSON.stringify(plan));
-    const r = solve(y, mo);
+    const r = solve(y, mo, { from, to });
     openMemo = { key: `${y}-${mo}`, n: openBefore };
-    const changes = monthDays(y, mo).filter(d => d >= TODAY).map(d => ({ d, b: before[iso(d)], a: evaluate(d) }))
+    const changes = rangeDays.map(d => ({ d, b: before[iso(d)], a: evaluate(d) }))
       .filter(x => x.a && (!x.b || x.b.status === 'bad' || x.b.team.join() !== x.a.team.join()));
     btn.disabled = false; save(); renderAll();
-    const open = openIn(y, mo);
+    const open = rangeDays.filter(d => evaluate(d)?.status === 'bad').length;
     openModal(`<h3 id="mTitle">Plan generiert</h3>
-      <p class="lead">${MONTHS[mo]} ${y} · ${teamsList().length} Teams · Sperrtage hart, Fairness ${settings.fair ? 'aktiv' : 'aus'} · ${settings.perShift} Sanis pro Dienst</p>
+      <p class="lead">${from} bis ${to} · ${teamsList().length} Teams · Sperrtage hart, Fairness ${settings.fair ? 'aktiv' : 'aus'} · ${settings.perShift} Sanis pro Dienst</p>
       <div class="result-grid">
         ${statCard('calendar-check', 'var(--green)', 'Dienste', r.days)}
         ${statCard('repeat', 'var(--lav)', 'Geändert', changes.length)}
@@ -276,10 +305,11 @@ $('#generate').onclick = () => {
         ${statCard('triangle-alert', 'var(--red)', 'Offen', open)}
       </div>
       ${r.relaxed || r.understaffed ? `<div class="alert info"><i data-lucide="sliders-horizontal"></i><span>Smart Relaxation: ${r.relaxed} Tag(e) mit gelockerten Fairness-/Frequenzregeln, ${r.understaffed} unterbesetzt. Sperrtage, Verfügbarkeit und AUSB-Pflicht wurden nie gebrochen.</span></div>` : ''}
-      ${open ? `<div class="alert"><i data-lucide="octagon-alert"></i><span>${open} Tag(e) konnten nicht besetzt werden (alle Teams gesperrt oder ohne AUSB). Prüfe Sperrtage, Teams oder Springer.</span></div>` : ''}
+      ${open ? `<div class="alert"><i data-lucide="octagon-alert"></i><span>${open} Tag(e) im angefragten Zeitraum sind weiterhin offen: es gibt kein verfügbares Team mit anwesender AUSB-Person, oder alle passenden Mitglieder sind gesperrt. Die konkreten offenen Tage stehen in der Liste.</span></div>` : ''}
       <p class="muted-s" style="margin:10px 0">Solver: ${r.nodes} Knoten · ${r.ms} ms · Kosten ${r.cost}${r.aborted ? ' · Suchbudget erreicht (beste gefundene Lösung)' : ''}</p>
-      ${changes.slice(0, 8).map(x => `<div class="set-line"><span>${fmtS(x.d)}<small>${esc(x.a.note)}</small></span><span class="status-pill ${x.a.status}">${{ ok: 'OK', warn: 'Warnung', bad: 'Offen' }[x.a.status]}</span></div>`).join('')}
-      ${changes.length > 8 ? `<p class="muted" style="padding-top:10px">+ ${changes.length - 8} weitere Änderungen</p>` : ''}
+      ${changes.slice(0, 8).map(x => `<div class="set-line"><span>${fmtS(x.d)}<small>${esc(x.a.note)}${x.b && x.b.status !== 'bad' ? ` <em class="muted-s">(vorher: ${esc(x.b.note)})</em>` : ''}</small></span><span class="status-pill ${x.a.status}">${{ ok: 'OK', warn: 'Warnung', bad: 'Offen' }[x.a.status]}</span></div>`).join('')}
+      ${changes.length > 8 ? `<details class="more-changes" style="margin-top:10px"><summary style="cursor:pointer" class="muted">${changes.length - 8} weitere Änderungen anzeigen (Tage und Besetzungen)</summary><div style="margin-top:6px">${changes.slice(8).map(x => `<div class="set-line"><span>${fmtS(x.d)}<small>${esc(x.a.note)}${x.b && x.b.status !== 'bad' ? ` <em class="muted-s">(vorher: ${esc(x.b.note)})</em>` : ''}</small></span><span class="status-pill ${x.a.status}">${{ ok: 'OK', warn: 'Warnung', bad: 'Offen' }[x.a.status]}</span></div>`).join('')}</div></details>` : ''}
+      ${r.days === 0 ? '<div class="alert info"><i data-lucide="info"></i><span>Im gewählten Zeitraum gab es keine freien Schultage. Bereits eingetragene Tage wurden ausgelassen und nicht verändert.</span></div>' : ''}
       <div class="modal-actions"><button class="btn ghost" id="resUndo"><i data-lucide="undo-2"></i>Rückgängig</button><button class="btn ghost" id="resShare"><i data-lucide="share-2"></i>Teilen</button><button class="btn primary" data-close>Übernehmen</button></div>`);
     $('#resShare').onclick = openExport;
     $('#resUndo').onclick = () => { if (prevPlan) { plan = prevPlan; prevPlan = null; save(); renderAll(); closeModal(); toast('Plan wiederhergestellt'); } };
@@ -295,14 +325,15 @@ function plannedMap() {
   return c;
 }
 function renderMembers() {
+  const memberQuali = x => x.quali || x.ausbildungsStatus || (x.inAusbildung === true || x.trainee === true || x.azubi === true ? 'ausbildung' : (x.ausb ? 'ausb' : 'helfer'));
   const q = $('#q').value.trim().toLowerCase(), st = $('#stufe').value, pm = plannedMap();
   let list = members.filter(x => (!q || `${x.first} ${x.last} ${x.cls}`.toLowerCase().includes(q)) && (!st || x.stufe === +st)
-    && (!filt.ausb || x.ausb) && (!filt.springer || x.springer) && (!filt.noteam || !teamMates(x).length) && (!filt.off || !x.available) && (!filt.trainee || x.quali === 'ausbildung'));
+    && (!filt.ausb || memberQuali(x) === 'ausb') && (!filt.springer || x.springer) && (!filt.noteam || !teamMates(x).length) && (!filt.off || !x.available) && (!filt.trainee || memberQuali(x) === 'ausbildung'));
   const keyOf = { name: x => `${x.last} ${x.first}`.toLowerCase(), cls: x => x.stufe * 100 + x.cls.charCodeAt(x.cls.length - 1), total: x => x.total, year: x => x.year, planned: x => pm.get(x.id) || 0 }[sortKey];
   list = [...list].sort((a, b) => { const ka = keyOf(a), kb = keyOf(b); return (ka > kb ? 1 : ka < kb ? -1 : 0) * sortDir; });
   $('#memCount').textContent = `(${members.length})`;
   $('#resultInfo').textContent = `${list.length} Treffer · ${list.filter(x => x.available).length} verfügbar`;
-  const badges = x => (x.ausb ? '<span class="badge">AUSB</span>' : '') + (x.quali === 'ausbildung' ? '<span class="badge warn">AZUBI</span>' : '') + (x.springer ? '<span class="badge spr">SPR</span>' : '')
+  const badges = x => (memberQuali(x) === 'ausb' ? '<span class="badge">AUSB</span>' : '') + (memberQuali(x) === 'ausbildung' ? '<span class="badge warn">AZUBI</span>' : '') + (x.springer ? '<span class="badge spr">SPR</span>' : '')
     + (teamMates(x).length && !teamHasAusb([x.id, ...teamMates(x).map(y => y.id)]) ? '<span class="badge warn">TEAM!</span>' : '');
   const th = (k, label) => `<th><button data-sort="${k}" aria-label="Sortieren nach ${label}">${label}${sortKey === k ? `<i data-lucide="${sortDir > 0 ? 'arrow-up' : 'arrow-down'}" style="width:13px;height:13px"></i>` : ''}</button></th>`;
   $('#memTable').innerHTML = `<thead><tr>${th('name', 'Name')}${th('cls', 'Klasse')}<th>Rolle</th><th>Team</th>${th('total', 'Gesamt')}${th('year', 'Jahr')}${th('planned', 'Geplant')}<th>Verfügbar</th><th></th></tr></thead><tbody>`
@@ -341,7 +372,18 @@ const pickerHTML = x => { const l = partnerCandidates(x); return l.length ? l.ma
 function openMember(id) {
   partnerQuery = ''; partnerOpen = false;
   mdraft = id == null ? { first: '', last: '', cls: '', ausb: false, springer: false, available: true }
-    : ({ first, last, cls, ausb, springer, available, quali, ausbildungsDatum, kontakt }) => ({ first, last, cls, ausb, springer, available, quali, ausbildungsDatum, kontakt })(m(id));
+    : (() => { const x = m(id); if (!x) return null;
+        // WICHTIG: ALLE gespeicherten Felder übernehmen (Name, Klasse, Ausbildungs-Status,
+        // Datum, Kontakt, Springer, Verfügbarkeit) – sonst stehen beim Bearbeiten nur Leeren.
+        return { id: x.id, first: x.first || '', last: x.last || '', cls: x.cls || '',
+          ausb: !!x.ausb, springer: !!x.springer, available: x.available !== false,
+          quali: x.quali || x.ausbildungsStatus || (x.inAusbildung === true ? 'ausbildung' : (x.ausb ? 'ausb' : 'helfer')),
+          ausbildungsStatus: x.ausbildungsStatus || x.quali || (x.inAusbildung === true ? 'ausbildung' : (x.ausb ? 'ausb' : 'helfer')),
+          ausbilderTeams: x.ausbilderTeams || [], ausbilderTeamLabels: x.ausbilderTeamLabels || [],
+          ausbilderTeamPrefs: x.ausbilderTeamPrefs || [], ausbilderTeamsSpecified: !!x.ausbilderTeamsSpecified,
+          ausbildungsDatum: x.ausbildungsDatum || null, kontakt: x.kontakt || '' };
+      })();
+  if (mdraft == null) { toast('Person nicht gefunden', true); return; }
   // Stufe/Klasse aus gespeicherter cls ableiten (z. B. "10-2" → Stufe 10, Klasse 2; "q3" → Q3)
   const splitCls = c => {
     const s = String(c || '').toLowerCase();
@@ -424,8 +466,8 @@ function openMember(id) {
       if (!isQ && !klasse) { toast('Bitte eine Klasse (1–4) wählen', true); $('#mKlasse')?.focus(); return; }
       // Klasse im Format "Stufe-Klasse" (z. B. 10-2) bzw. nur Stufe bei Q1-Q4
       const cls = isQ ? stufe.toLowerCase() : `${stufe}-${klasse}`.toLowerCase();
-      const qualiVal = $('#mQuali') ? $('#mQuali').value : (mdraft.quali || ($('#mAusbDatum')?.value ? 'ausb' : 'helfer'));
-      const cleanData = { ...mdraft, first, last: last || '-', cls, quali: qualiVal, ausb: qualiVal === 'ausb', ausbildungsDatum: qualiVal === 'ausb' ? ($('#mAusbDatum')?.value || mdraft.ausbildungsDatum || null) : null, kontakt: ($('#mKontakt')?.value ?? mdraft.kontakt ?? '') };
+      const qualiVal = $('#mQuali')?.value || mdraft.quali || (mdraft.ausb ? 'ausb' : 'helfer');
+      const cleanData = { ...mdraft, first, last: last || '-', cls, quali: qualiVal, ausbildungsStatus: qualiVal, inAusbildung: qualiVal === 'ausbildung', ausb: qualiVal === 'ausb', ausbilderTeams: mdraft.ausbilderTeams || [], ausbilderTeamLabels: mdraft.ausbilderTeamLabels || [], ausbilderTeamPrefs: mdraft.ausbilderTeamPrefs || [], ausbilderTeamsSpecified: !!mdraft.ausbilderTeamsSpecified, ausbildungsDatum: qualiVal === 'ausb' ? ($('#mAusbDatum')?.value || mdraft.ausbildungsDatum || null) : null, kontakt: ($('#mKontakt')?.value ?? mdraft.kontakt ?? '') };
       const saved = upsertMember(cleanData, id);
       renderAll();
       if (id == null) { toast(`${saved.first} angelegt`); openMember(saved.id); } else { closeModal(); toast('Änderungen gespeichert'); }
@@ -1153,6 +1195,9 @@ function creditShift(ids, d, isTeam = false, teamId = null) {
         plan[k].team.push(id);
       }
     });
+    // Händischer Nachtrag schützt den Tag immer vor Überschreibung – auch wenn der
+    // Tag vorher vom Algorithmus gesetzt wurde (händisch > Algorithmus).
+    if (k >= iso(TODAY)) plan[k].mark = true;
   }
 
   // 2. Zähler der Personen erhöhen
@@ -1292,7 +1337,33 @@ function renderSettings() {
   $('#bkEmpty').onclick = () => confirmBox('Leere Datenbank starten?', 'Alle Personen, Teams, Sperrtage, Pläne und Einsätze werden gelöscht.', 'Alles löschen', () => { emptyDb(); openMemo = null; save(); loadLog(); renderAll(); toast('Leere Datenbank angelegt'); });
   $$('[data-set]').forEach(b => b.onclick = () => { settings[b.dataset.set] = !settings[b.dataset.set]; b.setAttribute('aria-checked', settings[b.dataset.set]); save(); });
   $$('[data-step]').forEach(b => b.onclick = () => { settings.perShift = Math.min(3, Math.max(1, settings.perShift + +b.dataset.step)); $('#perShift').textContent = settings.perShift; save(); });
-  $$('[data-maxstep]').forEach(b => b.onclick = () => { settings.maxShift = Math.min(6, Math.max(2, (settings.maxShift || 4) + +b.dataset.maxstep)); $('#maxShift').textContent = settings.maxShift; save(); });
+  $$('[data-maxstep]').forEach(b => b.onclick = () => {
+    const old = settings.maxShift || 4;
+    settings.maxShift = Math.min(6, Math.max(2, old + +b.dataset.maxstep));
+    $('#maxShift').textContent = settings.maxShift; save();
+    if (settings.maxShift !== old) {
+      // Konkrete Folgen berechnen: Welche Teams/Azubi-Gruppen passen nicht mehr?
+      const traineeGroups = {};
+      members.filter(x => x.quali === 'ausbildung' && x.team != null).forEach(x => { (traineeGroups[x.team] ||= []).push(x); });
+      const tooBig = Object.entries(traineeGroups).filter(([, g]) => g.length + 2 > settings.maxShift);
+      const why = [
+        `Max. Schichtgröße: ${old} → ${settings.maxShift} Personen (inkl. Springer & Azubis).`,
+        tooBig.length
+          ? `Betroffene Azubi-Gruppen, die jetzt nicht mehr komplett neben einem 2er-Team passen: ${tooBig.map(([tid, g]) => `Team ${tid} (${g.map(x => x.first).join(', ')})`).join('; ')}. Diese Gruppe(n) werden künftig getrennt oder einzeln zugeteilt.`
+          : 'Aktuell sind keine Azubi-Gruppen betroffen – die Änderung wirkt nur auf künftige Zuteilungen.',
+        'Händisch nachgetragene Tage bleiben immer erhalten.',
+        '',
+        '• "Jetzt neu generieren": der laufende Plan wird sofort neu berechnet (händische Tage bleiben unangetastet).',
+        '• "Erst bei nächster Generierung": die Einstellung wird gespeichert und die bereits eingetragenen Tage bleiben unverändert.'
+      ].join('\n');
+      openModal(`<h3 id="mTitle">Dienstplan durch Größenänderung betroffen</h3>
+        <p class="lead">Die maximale Schichtgröße wurde von ${old} auf ${settings.maxShift} Personen geändert. Der bestehende Plan kann dadurch anders strukturiert werden müssen.</p>
+        <details class="confirm-details" open style="margin:10px 0;border:1px solid var(--border,#444);border-radius:8px;padding:8px 12px"><summary style="cursor:pointer;font-weight:600">Warum kommt diese Meldung?</summary><div style="margin-top:8px;font-size:.9em;color:var(--muted,#aaa);white-space:pre-line">${esc(why)}</div></details>
+        <div class="modal-actions"><button class="btn ghost" id="maxShiftLater">Erst bei nächster Generierung</button><button class="btn primary" id="maxShiftNow">Jetzt neu generieren</button></div>`);
+      $('#maxShiftLater').onclick = () => { closeModal(); toast('Neue maximale Schichtgröße wird bei der nächsten Generierung berücksichtigt'); };
+      $('#maxShiftNow').onclick = () => { closeModal(); if (typeof window.regeneratePlan === 'function') window.regeneratePlan(); else toast('Bitte generiere den Plan manuell neu', true); };
+    }
+  });
   $$('[data-trainstep]').forEach(b => b.onclick = () => { settings.traineesPerShift = Math.min(2, Math.max(0, (settings.traineesPerShift ?? 2) + +b.dataset.trainstep)); $('#traineesPerShift').textContent = settings.traineesPerShift; save(); });
   const agSel = $('#agDaySel'); if (agSel) agSel.onchange = e => { settings.agWeekday = e.target.value === '' ? null : +e.target.value; save(); renderAgDayCard(); };
   // Schulzeiten-Editor: Zeiten ändern & speichern
@@ -1389,7 +1460,13 @@ function openQrInviteModal() {
   const jsonStr = JSON.stringify(invitePayload);
   const base64Str = btoa(unescape(encodeURIComponent(jsonStr)));
   const inviteCode = `sani-alarm-beitritt:${base64Str}`;
-  const webJoinUrl = `https://sani-alarm-planer.netlify.app/?beitritt=1#key=${secretKey}`;
+  // Ausbilder-Teams (erfahrene Teams) als Komma-Liste an die Beitritts-Website übergeben –
+  // dort können Azubis dort abwählen, welche Teams sie NICHT möchten.
+  const ausbTeams = teamsList().filter(t => teamHasAusb(t.ids));
+  const ausbTeamIds = ausbTeams.map(t => t.id);
+  const teamNamesParam = encodeURIComponent(JSON.stringify(ausbTeams.map(t => [t.id, `Team ${t.id} · ${t.ids.map(id => fullName(m(id))).join(' & ')}`])));
+  const teamsParam = ausbTeamIds.length ? `&teams=${ausbTeamIds.join(',')}&teamNames=${teamNamesParam}` : '';
+  const webJoinUrl = `https://sani-alarm-planer.netlify.app/?beitritt=1${teamsParam}#key=${secretKey}`;
 
   openModal(`<h3 id="mTitle"><i data-lucide="qr-code" style="vertical-align:-3px"></i> Neuer Sani: Beitritt &amp; Einladung</h3>
     <p class="lead">Schüler können den echten QR-Code scannen, den Link öffnen oder ihren Anmeldecode direkt an dich übermitteln.</p>
@@ -1453,14 +1530,21 @@ function openQrInviteModal() {
       const klasseRaw = String(decoded.klasse || '').trim();
       const isOberstufe = /^(q[1-4]|1[123])$/i.test(stufeRaw);
       const cls = isOberstufe ? stufeRaw.toLowerCase()
-        : `${stufeRaw}${klasseRaw}`.toLowerCase() || '10a';
+        : `${stufeRaw}-${klasseRaw}`.toLowerCase() || '10-1';
+      const qualiRaw = decoded.ausbildungsStatus || (decoded.ausb ? 'ausb' : 'helfer');
       const added = upsertMember({
         first,
         last: decoded.nachname || decoded.last || '-',
         cls,
-        ausb: !!(decoded.ausb ?? false),
+        ausb: qualiRaw === 'ausb' || !!(decoded.ausb ?? false),
         springer: true,
-        available: true
+        available: true,
+        quali: qualiRaw,
+        kontakt: decoded.kontakt || '',
+        ausbilderTeams: Array.isArray(decoded.ausbilderTeams) ? decoded.ausbilderTeams : [],
+        ausbilderTeamLabels: Array.isArray(decoded.ausbilderTeamLabels) ? decoded.ausbilderTeamLabels : [],
+        ausbilderTeamPrefs: Array.isArray(decoded.ausbilderTeamPrefs) ? decoded.ausbilderTeamPrefs : [],
+        ausbilderTeamsSpecified: decoded.ausbilderTeamsSpecified ?? (Array.isArray(decoded.ausbilderTeams) && decoded.ausbilderTeams.length > 0)
       });
       save();
       renderAll();
@@ -1642,6 +1726,7 @@ function openSubstituteModal(absentIds, day = TODAY) {
     if (!e.extra.includes(saniId)) e.extra.push(saniId);
     e.status = 'warn'; e.tag = 'SPR';
     e.note = `Notfall-Wechsel: ${m(saniId)?.first} für ${absentIds.map(id => m(id)?.first || '?').join(', ')} eingewechselt`;
+    e.mark = true; // händische Änderung schützt den Tag vor Neu-Generierung
     save(); renderAll(); closeModal();
     toast(`${m(saniId)?.first} eingewechselt!`);
   });
@@ -1666,11 +1751,14 @@ function attachInfoTips(root = document) {
     const key = Object.keys(METRIC_INFO).find(k => txt.startsWith(k) || (k.length === 1 && txt === k));
     if (!key || el.dataset.tip) return;
     el.dataset.tip = '1';
-    el.insertAdjacentHTML('beforeend', `<i data-lucide="info" class="info-tip" tabindex="0" role="button" aria-label="Erklärung" title="${METRIC_INFO[key].replace(/"/g, '&quot;')}"></i>`);
+    el.insertAdjacentHTML('beforeend', `<button type="button" class="info-tip" data-infokey="${key}" aria-label="Erklärung: ${METRIC_INFO[key].replace(/"/g, '&quot;')}" title="${METRIC_INFO[key].replace(/"/g, '&quot;')}"><i data-lucide="info" aria-hidden="true"></i></button>`);
   });
-  $$('.hm-legend, .bars-legend', root).length; // noop halt
-  const bk = $('.bars .muted-s'); // Hinweistext erweitern nicht nötig
+  // Button-Wrapper bleibt nach dem Ersetzen des Lucide-Icons klickbar und tastaturbedienbar.
   icons();
+  $$('.info-tip', root).forEach(button => {
+    if (button.dataset.tipClick) return; button.dataset.tipClick = '1';
+    button.onclick = () => openModal(`<h3 id="mTitle">Erklärung</h3><p class="lead">${esc(METRIC_INFO[button.dataset.infokey] || '')}</p><div class="modal-actions"><button class="btn primary" data-close>Verstanden</button></div>`);
+  });
 }
 // Info-Tipps nach jedem Statistik-Render anwenden
 const _origRenderBars = renderBars;

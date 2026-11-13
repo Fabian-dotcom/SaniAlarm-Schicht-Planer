@@ -42,6 +42,11 @@
           <button class="btn primary" id="generate"><i data-lucide="sparkles"></i><span>Plan generieren</span></button>
         </div>
       </header>
+      <div class="plan-range" aria-label="Zeitraum für die Plangenerierung">
+        <label>Generieren von <input class="inp" id="generateFrom" type="date"></label>
+        <label>bis <input class="inp" id="generateTo" type="date"></label>
+        <span class="muted-s">Nur noch unbelegte Schultage in diesem Zeitraum werden geplant.</span>
+      </div>
       <div id="panicBanner"></div>
       <div class="stats" id="stats"></div>
       <div class="dash">

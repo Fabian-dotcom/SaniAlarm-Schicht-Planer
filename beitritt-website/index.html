@@ -65,6 +65,22 @@
           </span>
         </label>
 
+        <label>
+          Kontakt (optional)
+          <input name="kontakt" maxlength="200" autocomplete="off" placeholder="Schüler-E-Mail oder Telefon" />
+        </label>
+
+        <label>
+          Ausbildungs-Status
+          <span class="select-wrap">
+            <select name="ausbildungsStatus" id="ausbildungsStatusSelect">
+              <option value="helfer">Noch keine Ausbildung</option>
+              <option value="ausbildung">Gerade in der Ausbildung</option>
+              <option value="ausb">Ausbildung abgeschlossen (AUSB)</option>
+            </select>
+          </span>
+        </label>
+
         <label id="klasseLabel">
           Klasse <span aria-hidden="true">*</span>
           <span class="select-wrap">
@@ -78,6 +94,15 @@
           </span>
           <small class="hint">Deine Klasse (1–4) innerhalb der Stufe.</small>
         </label>
+
+        <fieldset class="teams-box">
+          <legend>Ausbilder-Teams</legend>
+          <p class="hint">
+            Alle Teams sind vorausgewählt. Hake Teams ab, mit denen du <strong>nicht</strong>
+            ausgebildet werden möchtest. Deine Auswahl wird verschlüsselt mit dem Antwortcode übermittelt.
+          </p>
+          <div id="ausbilderTeams" class="teams-list"></div>
+        </fieldset>
 
         <div class="privacy">
           <h2>Was mit deinen Angaben passiert</h2>
