@@ -157,6 +157,13 @@ h2{font-size:17px;font-weight:600;letter-spacing:-.2px}
 .detail .hd{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .detail .note{font-size:14px;color:var(--muted);display:flex;gap:8px;align-items:flex-start}
 .detail .note svg{width:17px;height:17px;margin-top:1px}
+.warning-explanation{font-size:12.5px;color:var(--muted);margin:5px 0 8px;padding:7px 10px;border:1px solid #ead9a3;border-radius:10px;background:rgba(255,193,7,.08)}
+.warning-explanation summary{cursor:pointer;font-weight:600;color:#805f00}
+.warning-explanation ul{margin:6px 0 0;padding-left:20px}
+.warning-explanation li+li{margin-top:4px}
+.result-warnings{margin:10px 0;padding:11px 14px;border-radius:12px;background:rgba(255,193,7,.12);color:#684d00;font-size:13px}
+.result-warnings ul{margin:6px 0 0;padding-left:20px}
+.result-warnings li+li{margin-top:6px}
 .team{display:flex;flex-wrap:wrap;gap:8px}
 .chip-person{display:flex;align-items:center;gap:8px;background:#F4F2EA;border-radius:99px;padding:4px 12px 4px 4px;font-size:13.5px}
 .chip-person .av{width:26px;height:26px;font-size:11px}

@@ -292,8 +292,25 @@ $('#generate').onclick = () => {
     prevPlan = JSON.parse(JSON.stringify(plan));
     const r = solve(y, mo, { from, to });
     openMemo = { key: `${y}-${mo}`, n: openBefore };
-    const changes = rangeDays.map(d => ({ d, b: before[iso(d)], a: evaluate(d) }))
+    const changes = rangeDays.map(d => ({ d, k: iso(d), b: before[iso(d)], a: evaluate(d) }))
       .filter(x => x.a && (!x.b || x.b.status === 'bad' || x.b.team.join() !== x.a.team.join()));
+    const warningChanges = changes.filter(x => x.a.status === 'warn' || x.a.status === 'bad');
+    const warningSummaryDays = warningChanges;
+    const reasonGroups = new Map();
+    warningChanges.forEach(x => {
+      const reasons = [...new Set(x.a.warningDetails?.length ? x.a.warningDetails : [x.a.note])];
+      x.warningReasons = reasons;
+      reasons.forEach(reason => {
+        if (!reasonGroups.has(reason)) reasonGroups.set(reason, []);
+        reasonGroups.get(reason).push(x);
+      });
+    });
+    const sharedReasonGroups = [...reasonGroups.entries()].filter(([, days]) => days.length > 1);
+    const commonReasons = warningChanges.length && warningChanges.every(x => JSON.stringify(x.warningReasons) === JSON.stringify(warningChanges[0].warningReasons))
+      ? warningChanges[0].warningReasons : [];
+    const dayWarningHtml = x => x.warningReasons?.length
+      ? `<details class="warning-explanation"><summary>Warum diese Warnung?</summary><ul>${x.warningReasons.map(reason => `<li>${esc(reason)}</li>`).join('')}</ul></details>`
+      : '';
     btn.disabled = false; save(); renderAll();
     const open = rangeDays.filter(d => evaluate(d)?.status === 'bad').length;
     openModal(`<h3 id="mTitle">Plan generiert</h3>
@@ -305,10 +322,14 @@ $('#generate').onclick = () => {
         ${statCard('triangle-alert', 'var(--red)', 'Offen', open)}
       </div>
       ${r.relaxed || r.understaffed ? `<div class="alert info"><i data-lucide="sliders-horizontal"></i><span>Smart Relaxation: ${r.relaxed} Tag(e) mit gelockerten Fairness-/Frequenzregeln, ${r.understaffed} unterbesetzt. Sperrtage, Verfügbarkeit und AUSB-Pflicht wurden nie gebrochen.</span></div>` : ''}
+      ${commonReasons.length ? `<div class="result-warnings"><b>Erklärung für alle ${warningChanges.length} Warnungstage</b><ul>${commonReasons.map(reason => `<li>${esc(reason)}</li>`).join('')}</ul><small>Alle Warnungstage im Vorschaufenster haben denselben Grund.</small></div>` : ''}
+      ${!commonReasons.length && sharedReasonGroups.length ? `<div class="result-warnings"><b>Gemeinsame Warnungsgründe</b><ul>${sharedReasonGroups.map(([reason, days]) => `<li>${days.length} Tage (${days.map(x => fmtS(x.d)).join(', ')}): ${esc(reason)}</li>`).join('')}</ul></div>` : ''}
+      ${warningChanges.some(x => !x.a.warningDetails?.length) ? '<div class="result-warnings"><b>Warnung ohne Solver-Erklärung</b><p>Bei mindestens einem Tag stammt die Warnung aus einem bestehenden oder nachgetragenen Eintrag. Prüfe den Tag im Kalender für Details.</p></div>' : ''}
       ${open ? `<div class="alert"><i data-lucide="octagon-alert"></i><span>${open} Tag(e) im angefragten Zeitraum sind weiterhin offen: es gibt kein verfügbares Team mit anwesender AUSB-Person, oder alle passenden Mitglieder sind gesperrt. Die konkreten offenen Tage stehen in der Liste.</span></div>` : ''}
       <p class="muted-s" style="margin:10px 0">Solver: ${r.nodes} Knoten · ${r.ms} ms · Kosten ${r.cost}${r.aborted ? ' · Suchbudget erreicht (beste gefundene Lösung)' : ''}</p>
-      ${changes.slice(0, 8).map(x => `<div class="set-line"><span>${fmtS(x.d)}<small>${esc(x.a.note)}${x.b && x.b.status !== 'bad' ? ` <em class="muted-s">(vorher: ${esc(x.b.note)})</em>` : ''}</small></span><span class="status-pill ${x.a.status}">${{ ok: 'OK', warn: 'Warnung', bad: 'Offen' }[x.a.status]}</span></div>`).join('')}
-      ${changes.length > 8 ? `<details class="more-changes" style="margin-top:10px"><summary style="cursor:pointer" class="muted">${changes.length - 8} weitere Änderungen anzeigen (Tage und Besetzungen)</summary><div style="margin-top:6px">${changes.slice(8).map(x => `<div class="set-line"><span>${fmtS(x.d)}<small>${esc(x.a.note)}${x.b && x.b.status !== 'bad' ? ` <em class="muted-s">(vorher: ${esc(x.b.note)})</em>` : ''}</small></span><span class="status-pill ${x.a.status}">${{ ok: 'OK', warn: 'Warnung', bad: 'Offen' }[x.a.status]}</span></div>`).join('')}</div></details>` : ''}
+      ${warningSummaryDays.slice(0, 8).map(x => `<div class="set-line"><span>${fmtS(x.d)}<small>${esc(x.a.note)}${x.b && x.b.status !== 'bad' ? ` <em class="muted-s">(vorher: ${esc(x.b.note)})</em>` : ''}</small>${dayWarningHtml(x)}</span><span class="status-pill ${x.a.status}">${{ ok: 'OK', warn: 'Warnung', bad: 'Offen' }[x.a.status]}</span></div>`).join('')}
+      ${warningSummaryDays.length > 8 ? `<details class="more-changes" style="margin-top:10px"><summary style="cursor:pointer" class="muted">${warningSummaryDays.length - 8} weitere verschiedene Besetzungen / Hinweise anzeigen</summary><div style="margin-top:6px">${warningSummaryDays.slice(8).map(x => `<div class="set-line"><span>${fmtS(x.d)}<small>${esc(x.a.note)}${x.b && x.b.status !== 'bad' ? ` <em class="muted-s">(vorher: ${esc(x.b.note)})</em>` : ''}</small>${dayWarningHtml(x)}</span><span class="status-pill ${x.a.status}">${{ ok: 'OK', warn: 'Warnung', bad: 'Offen' }[x.a.status]}</span></div>`).join('')}</div></details>` : ''}
+      ${changes.filter(x => x.a.status === 'ok').length ? `<details class="more-changes" style="margin-top:10px"><summary style="cursor:pointer" class="muted">${changes.filter(x => x.a.status === 'ok').length} weitere Tage ohne Warnung anzeigen</summary><div style="margin-top:6px">${changes.filter(x => x.a.status === 'ok').map(x => `<div class="set-line"><span>${fmtS(x.d)}<small>${esc(x.a.note)}</small></span><span class="status-pill ok">OK</span></div>`).join('')}</div></details>` : ''}
       ${r.days === 0 ? '<div class="alert info"><i data-lucide="info"></i><span>Im gewählten Zeitraum gab es keine freien Schultage. Bereits eingetragene Tage wurden ausgelassen und nicht verändert.</span></div>' : ''}
       <div class="modal-actions"><button class="btn ghost" id="resUndo"><i data-lucide="undo-2"></i>Rückgängig</button><button class="btn ghost" id="resShare"><i data-lucide="share-2"></i>Teilen</button><button class="btn primary" data-close>Übernehmen</button></div>`);
     $('#resShare').onclick = openExport;

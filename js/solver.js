@@ -45,6 +45,21 @@
     sprWeek: 'Springer mehrfach in der Woche',
     sprOnly: 'ohne festes Team (nur Springer)'
   };
+  const RULE_DETAILS = {
+    week: 'Das Team wurde bereits an einem anderen Tag derselben Kalenderwoche eingesetzt. Es wurde trotzdem gewählt, weil es die beste verfügbare Besetzung für diesen Tag war.',
+    wd: 'Das Team hatte diesen Wochentag bereits in diesem Monat. Die Wochentag-Regel wurde gelockert, weil sonst keine bessere gültige Besetzung gefunden wurde.',
+    fm: 'Das Team ist bereits am Freitag oder am folgenden Montag eingeteilt. Die Fr–Mo-Pause wurde gelockert, damit dieser Dienst besetzt werden kann.',
+    sprWeek: 'Mindestens ein Springer wurde diese Kalenderwoche schon eingesetzt und wird hier erneut als Ergänzung gebraucht.',
+    sprOnly: 'Es gab kein einsetzbares festes Team mit anwesender ausgebildeter Person. Deshalb wurde auf ein reines Springer-Team zurückgegriffen.',
+    sprOnlyDisabled: 'Ein reines Springer-Team wäre nötig gewesen, aber der dafür benötigte ausgebildete Springer ist nicht verfügbar.',
+    trainee: 'Eine oder mehrere Personen in Ausbildung wurden zur Soll-Besetzung ergänzt. Der Dienst ist als Warnung markiert, weil Azubis zusätzlich zu einem erfahrenen Team eingesetzt werden.',
+    springerAdded: 'Die Soll-Besetzung wurde durch Springer ergänzt; die regulären Teammitglieder allein haben nicht alle Plätze gefüllt.',
+    pref: 'Eine verfügbare Azubi-Gruppe hatte andere Ausbilder-Teams als Präferenz. Diese Teams konnten an diesem Tag nicht passend besetzt werden, daher wurde die Präferenz übergangen.',
+    teamOnly: 'Nicht alle Mitglieder des festen Teams sind anwesend oder verfügbar. Das verfügbare Teammitglied wird durch geeignete Personen ergänzt.',
+    soleMember: 'Das feste Team besteht nur aus einer Person. Sie wurde durch geeignete Personen ergänzt, damit ein sicher besetzter Dienst entsteht.',
+    missing: 'Das Team konnte nicht auf die eingestellte Soll-Größe ergänzt werden. Es fehlen verfügbare, nicht gesperrte und für diesen Dienst zulässige Personen.',
+    none: 'Es gab keine verfügbare Besetzung, die unveränderlichen Anforderungen (AUSB, Verfügbarkeit und Sperrtage) erfüllt.'
+  };
 
   function blockedIds(block, members) {
     const s = block.scope;
@@ -81,12 +96,18 @@
   function toEntry(o, per, byId) {
     const first = id => (byId.get(id) || { first: '?' }).first;
     if (!o.team.length) {
-      return { team: [], teamId: null, extra: [], status: 'bad', tag: `0/${per}`, rules: [],
-        note: 'Kein gültiges Team – alle gesperrt oder ohne AUSB' };
+      return { team: [], teamId: null, extra: [], status: 'bad', tag: `0/${per}`, rules: ['none'],
+        note: RULE_DETAILS.none, warningDetails: [RULE_DETAILS.none] };
     }
     const names = o.team.map(first).join(' & ');
-    const labels = o.viol.map(v => LABEL[v]);
-    const base = { team: o.team, teamId: o.teamId, extra: o.extra, rules: o.viol };
+    const labels = o.viol.map(v => LABEL[v]).filter(Boolean);
+    const warningDetails = o.warningDetails?.length ? [...o.warningDetails] : o.viol.map(v => RULE_DETAILS[v]).filter(Boolean);
+    if (o.missing > 0 && !warningDetails.includes(RULE_DETAILS.missing)) warningDetails.push(RULE_DETAILS.missing);
+    const extraTrainees = o.extra.some(id => isTrainee(byId.get(id) || {}));
+    const extraOthers = o.extra.some(id => !isTrainee(byId.get(id) || {}));
+    if (extraTrainees && !warningDetails.includes(RULE_DETAILS.trainee)) warningDetails.push(RULE_DETAILS.trainee);
+    if (extraOthers && !warningDetails.includes(RULE_DETAILS.springerAdded)) warningDetails.push(RULE_DETAILS.springerAdded);
+    const base = { team: o.team, teamId: o.teamId, extra: o.extra, rules: o.viol, warningDetails };
     const sprNames = o.extra.map(first).join(', ');
     let note, status = 'warn', tag;
     if (o.missing > 0) {
@@ -102,8 +123,8 @@
       status = 'ok'; tag = 'OK'; note = `Team ${names}`;
     }
     const extraLabels = labels.filter(l => !(o.sprOnly && l === LABEL.sprOnly));
-    if (status === 'warn' && extraLabels.length && tag !== 'SPR') note += ` · ${extraLabels.join(', ')}`;
-    else if (status === 'warn' && extraLabels.length) note += ` · ${extraLabels.join(', ')}`;
+    if (status === 'warn' && extraLabels.length) note += ` · ${extraLabels.join(', ')}`;
+    if (o.sprOnly && o.viol.includes('pref')) note += ' · Ausbilder-Präferenz nicht verfügbar';
     return { ...base, status, tag, note };
   }
 
@@ -264,7 +285,8 @@
           if (other && get(U.day, t.id + '|' + other) > 0) { viol.push('fm'); cost += PEN.fm; }
         }
         const team = [...c.usable], extra = [];
-        let missing = 0;
+        let missing = 0, prefSkipped = false;
+        const reasonCodes = new Set();
         // Ausb-Springer (ausgebildet, ohne Team) zuerst als Ergänzung – sie sammeln Rotation
         const auxPool = [
           ...day.springers.filter(s => !team.includes(s.id) && isAusb(s)).map(s => ({ s, kind: 'spr' })),
@@ -281,8 +303,9 @@
           // (wenigste Dienste = am längsten nicht dran = höchste Fairness-Priorität).
           const maxTrainees = Math.max(0, settings.traineesPerShift ?? 2);
           const traineeCount = () => team.filter(id => isTrainee(byId.get(id) || {})).length;
-          const ranked = auxPool
-            .filter(a => !team.includes(a.s.id))
+          const eligibleForTeam = auxPool.filter(a => !team.includes(a.s.id));
+          if (eligibleForTeam.some(a => a.kind === 'trainee' && a.s.ausbilderTeamsSpecified && !a.s.ausbilderTeams.includes(t.id))) { prefSkipped = true; reasonCodes.add('pref'); }
+          const ranked = eligibleForTeam
             .filter(a => a.kind !== 'trainee' || !a.s.ausbilderTeamsSpecified || a.s.ausbilderTeams.includes(t.id))
             .filter(a => a.kind !== 'trainee' || traineeCount() < maxTrainees)
             .map(a => ({ ...a, used: usedWeek(a.s.id) }))
@@ -323,7 +346,7 @@
               cost += get(U.trainee, p.s.id) * 8;
             } // Mentoring, Präferenz und Rotation
             else cost += PEN.extra;
-            if (p.used) { if (!viol.includes('sprWeek')) viol.push('sprWeek'); cost += PEN.sprWeek; }
+            if (p.used) { if (!viol.includes('sprWeek')) viol.push('sprWeek'); cost += PEN.sprWeek; reasonCodes.add('sprWeek'); }
             // Lieblingspartner (Trainee-Duo) mitnehmen, wenn noch Platz ist
             if (p.kind === 'trainee' && duoFits(p)) {
               const partners = (traineePartners.get(p.s.id) || [])
@@ -349,6 +372,16 @@
         if (need > 0 && filled < need) missing = need - filled;
         cost += missing * PEN.missing;
         // Fairness: durchschnittlicher P_i-Score des Teams (dezent skaliert, Regelkosten dominieren)
+        if (prefSkipped && !viol.includes('pref')) { viol.push('pref'); cost += PEN.extra; reasonCodes.add('pref'); }
+        for (const code of viol) if (!reasonCodes.has(code)) reasonCodes.add(code);
+        const warningDetails = [...reasonCodes].map(v => RULE_DETAILS[v]).filter(Boolean);
+        if (c.usable.length < t.ids.length) warningDetails.push(t.ids.length === 1 ? RULE_DETAILS.soleMember : RULE_DETAILS.teamOnly);
+        if (viol.includes('week') && !warningDetails.includes(RULE_DETAILS.week)) warningDetails.push(RULE_DETAILS.week);
+        if (viol.includes('wd') && !warningDetails.includes(RULE_DETAILS.wd)) warningDetails.push(RULE_DETAILS.wd);
+        if (viol.includes('fm') && !warningDetails.includes(RULE_DETAILS.fm)) warningDetails.push(RULE_DETAILS.fm);
+        if (missing > 0) warningDetails.push(RULE_DETAILS.missing);
+        if (extra.some(id => isTrainee(byId.get(id) || {}))) warningDetails.push(RULE_DETAILS.trainee);
+        if (extra.some(id => !isTrainee(byId.get(id) || {}))) warningDetails.push(RULE_DETAILS.springerAdded);
         let teamCost = t.ids.reduce((a, id) => a + pi(id), 0) / Math.max(1, t.ids.length) * 8;
         teamCost += get(U.cnt, t.id) * 5; // Einsatz-Rotation über alle neu berechneten Tage
         const prefTrainees = members.filter(mm => isTrainee(mm) && mm.available
@@ -358,9 +391,9 @@
         teamCost -= t.ids.reduce((a, id) => a + (pressBonus.get(id) || 0), 0) / Math.max(1, t.ids.length) * 1.5;
         cost += teamCost;
         cost += ((t.id * 7 + day.d.getDate()) % 11) * 0.001;               // deterministischer Tie-Break
-        out.push({ team, teamId: t.id, extra, viol, missing, cost, sprOnly: false });
+        out.push({ team, teamId: t.id, extra, viol, missing, cost, sprOnly: false, warningDetails });
       }
-      if (day.springers.some(s => s.ausb)) {                              // Notlösung: nur Springer
+      if (!day.cands.length && day.springers.some(s => s.ausb)) {         // Notlösung: nur Springer
         const pool = day.springers.map(s => ({ s, used: get(U.spr, s.id + '|' + day.wk) > 0 }));
         const byUse = (a, b) => (a.used - b.used) || a.s.total - b.s.total;
         const first = pool.filter(p => p.s.ausb).sort(byUse)[0];
@@ -369,9 +402,16 @@
         chosen.forEach(p => { if (p.used) { if (!viol.includes('sprWeek')) viol.push('sprWeek'); cost += PEN.sprWeek; } });
         const missing = curPer - chosen.length; cost += missing * PEN.missing;
         const ids = chosen.map(p => p.s.id);
-        out.push({ team: ids, teamId: null, extra: ids, viol, missing, cost, sprOnly: true });
+        const warningDetails = viol.map(v => RULE_DETAILS[v]).filter(Boolean);
+        if (members.some(mm => isTrainee(mm) && mm.available && mm.ausbilderTeamsSpecified && mm.ausbilderTeams.length)) warningDetails.push(RULE_DETAILS.pref);
+        if (missing > 0) warningDetails.push(RULE_DETAILS.missing);
+        out.push({ team: ids, teamId: null, extra: ids, viol, missing, cost, sprOnly: true, warningDetails });
       }
-      out.push({ team: [], teamId: null, extra: [], viol: ['none'], missing: curPer, cost: PEN.none, sprOnly: false }); // unbesetzt
+      const noTeam = { team: [], teamId: null, extra: [], viol: ['none'], missing: curPer, cost: PEN.none, sprOnly: false };
+      const unavailableLead = members.some(mm => isTrainee(mm) && mm.available && mm.ausbilderTeamsSpecified && mm.ausbilderTeams.length)
+        && !members.some(mm => mm.available && !day.blocked.has(mm.id) && mm.springer && isAusb(mm));
+      noTeam.warningDetails = [RULE_DETAILS.none, ...(unavailableLead ? [RULE_DETAILS.sprOnlyDisabled, RULE_DETAILS.pref] : [])];
+      out.push(noTeam);
       return out;
     }
 
@@ -433,5 +473,5 @@
   /* Mit jeder Neuberechnung frisch bewertet: die Tages-Statistik (lastDuty/pi-Score) wird
      zu Beginn von solveMonth aus dem Ist-Zustand neu aufgebaut – kein veralteter Zwischenstand. */
 
-  return { solveMonth, blockedIds, blockedMap, buildTeams, fairness, iso, parse, addDays, isSchool, weekKey, stufeOf, PEN, LABEL };
+  return { solveMonth, blockedIds, blockedMap, buildTeams, fairness, iso, parse, addDays, isSchool, weekKey, stufeOf, PEN, LABEL, RULE_DETAILS };
 });

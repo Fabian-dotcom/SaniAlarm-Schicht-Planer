@@ -510,14 +510,15 @@ function evaluate(d) {
   const hasAusb = active.some(id => m(id) && m(id).ausb);
   if (!hit.length) {
     if (!hasAusb && active.length > 0) {
-      return { ...e, hit, status: 'bad', tag: 'AUSB!', note: 'Konflikt: Kein anwesendes Teammitglied hat Sanitätsausbildung (AUSB)' };
+      return { ...e, hit, status: 'bad', tag: 'AUSB!', note: 'Konflikt: Kein anwesendes Teammitglied hat Sanitätsausbildung (AUSB)', warningDetails: ['Der eingeteilte Tag erfüllt die feste AUSB-Regel nicht: Mindestens eine anwesende Person im Dienst muss vollständig ausgebildet sein.'] };
     }
     return { ...e, hit };
   }
   const b = hit.map(id => bm.get(id)).find(Boolean);
   let note = `Konflikt: ${hit.map(id => m(id)?.first || '?').join(', ')} – ${b ? b.title : 'krank gemeldet'}.`;
   if (!hasAusb) note += ' (Keine AUSB mehr vor Ort)';
-  return { ...e, hit, status: 'bad', tag: b ? BTYPES[b.type].tag : 'KR', note: `${note} Plan neu generieren.` };
+  const warningDetails = [`Der eingeteilte Dienst kollidiert mit ${hit.map(id => { const member = m(id); const block = bm.get(id); return `${member ? fullName(member) : 'Unbekannte Person'}${block ? `: ${block.title}` : ': nicht verfügbar'}`; }).join('; ')}.`, ...(hasAusb ? [] : ['Nach Abzug der abwesenden Personen bleibt keine ausgebildete Person im Team.']), 'Dieser Tag wurde nicht automatisch neu besetzt, da vorhandene Planeinträge geschützt bleiben.'];
+  return { ...e, hit, status: 'bad', tag: b ? BTYPES[b.type].tag : 'KR', note: `${note} Plan neu generieren.`, warningDetails };
 }
 function monthDays(y, mo) { const out = [], len = new Date(y, mo + 1, 0).getDate(); for (let i = 1; i <= len; i++) { const d = new Date(y, mo, i); if (isSchool(d)) out.push(d); } return out; }
 const openIn = (y, mo) => monthDays(y, mo).filter(d => d >= TODAY).filter(d => evaluate(d)?.status === 'bad').length;
