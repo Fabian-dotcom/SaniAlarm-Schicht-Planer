@@ -45,7 +45,13 @@
       <div class="plan-range" aria-label="Zeitraum für die Plangenerierung">
         <label>Generieren von <input class="inp" id="generateFrom" type="date"></label>
         <label>bis <input class="inp" id="generateTo" type="date"></label>
-        <span class="muted-s">Nur noch unbelegte Schultage in diesem Zeitraum werden geplant.</span>
+        <label class="generate-mode">Belegung
+          <select class="inp" id="generateMode">
+            <option value="empty">Nur unbelegte Tage</option>
+            <option value="replace">Ausgewählte Tage neu optimieren</option>
+          </select>
+        </label>
+        <span class="muted-s" id="generateModeHint">Nur noch unbelegte Schultage in diesem Zeitraum werden geplant.</span>
       </div>
       <div id="panicBanner"></div>
       <div class="stats" id="stats"></div>

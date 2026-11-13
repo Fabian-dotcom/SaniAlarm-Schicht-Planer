@@ -272,6 +272,12 @@ $('#nextM').onclick = () => { viewMonth = new Date(viewMonth.getFullYear(), view
 $('#todayBtn').onclick = () => { viewMonth = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1); selected = new Date(TODAY); renderDashboard(); };
 $('#generateFrom').onchange = () => { const to = $('#generateTo'); if (to.value && $('#generateFrom').value > to.value) to.value = $('#generateFrom').value; };
 $('#generateTo').onchange = () => { const from = $('#generateFrom'); if (from.value && $('#generateTo').value < from.value) from.value = $('#generateTo').value; };
+$('#generateMode').onchange = () => {
+  const replacing = $('#generateMode').value === 'replace';
+  $('#generateModeHint').textContent = replacing
+    ? 'Vorhandene automatische Einträge im Zeitraum werden neu optimiert. Manuell fixierte Tage bleiben erhalten.'
+    : 'Nur noch unbelegte Schultage im Zeitraum werden geplant.';
+};
 $('#blockBtn').onclick = () => openBlockModal({ date: isSchool(selected) ? iso(selected) : undefined });
 $('#exportBtn').onclick = openExport;
 
@@ -282,15 +288,22 @@ $('#generate').onclick = () => {
   const y = viewMonth.getFullYear(), mo = viewMonth.getMonth();
   syncGenerateRange();
   const from = $('#generateFrom').value, to = $('#generateTo').value;
+  const mode = $('#generateMode').value;
+  const replaceExisting = mode === 'replace';
   if (!from || !to || from > to) { toast('Bitte einen gültigen Zeitraum von/bis wählen', true); return; }
   const rangeDays = [];
   for (let d = parse(from); iso(d) <= to; d = addDays(d, 1)) if (isSchool(d) && d >= TODAY && d.getMonth() === mo && d.getFullYear() === y) rangeDays.push(d);
+  const existingInRange = rangeDays.filter(d => plan[iso(d)]);
+  if (replaceExisting && existingInRange.some(d => plan[iso(d)]?.mark)) {
+    const fixedDates = existingInRange.filter(d => plan[iso(d)]?.mark).map(fmtS).join(', ');
+    toast(`Manuell fixierte Tage bleiben erhalten: ${fixedDates}`, true);
+  }
   const before = {}; rangeDays.forEach(d => before[iso(d)] = evaluate(d));
   const openBefore = rangeDays.filter(d => evaluate(d)?.status === 'bad').length, btn = $('#generate');
   btn.disabled = true; btn.innerHTML = `<i data-lucide="loader-circle" class="spin"></i><span>Prüfe Regeln &amp; Sperrtage …</span>`; icons();
   setTimeout(() => {
     prevPlan = JSON.parse(JSON.stringify(plan));
-    const r = solve(y, mo, { from, to });
+    const r = solve(y, mo, { from, to, replaceExisting });
     openMemo = { key: `${y}-${mo}`, n: openBefore };
     const changes = rangeDays.map(d => ({ d, k: iso(d), b: before[iso(d)], a: evaluate(d) }))
       .filter(x => x.a && (!x.b || x.b.status === 'bad' || x.b.team.join() !== x.a.team.join()));
@@ -314,7 +327,8 @@ $('#generate').onclick = () => {
     btn.disabled = false; save(); renderAll();
     const open = rangeDays.filter(d => evaluate(d)?.status === 'bad').length;
     openModal(`<h3 id="mTitle">Plan generiert</h3>
-      <p class="lead">${from} bis ${to} · ${teamsList().length} Teams · Sperrtage hart, Fairness ${settings.fair ? 'aktiv' : 'aus'} · ${settings.perShift} Sanis pro Dienst</p>
+      <p class="lead">${from} bis ${to} · ${replaceExisting ? `${existingInRange.length} bestehende Tage werden neu geprüft` : 'nur unbelegte Tage'} · ${teamsList().length} Teams · Sperrtage hart, Fairness ${settings.fair ? 'aktiv' : 'aus'} · ${settings.perShift} Sanis pro Dienst</p>
+      ${replaceExisting && existingInRange.length ? `<div class="alert"><i data-lucide="triangle-alert"></i><span>Du hast „Ausgewählte Tage neu optimieren“ gewählt. ${existingInRange.length} bestehende Einträge in diesem Zeitraum werden ersetzt. Manuell fixierte Tage bleiben erhalten. Prüfe die Vorschau, bevor du übernimmst.</span></div>` : ''}
       <div class="result-grid">
         ${statCard('calendar-check', 'var(--green)', 'Dienste', r.days)}
         ${statCard('repeat', 'var(--lav)', 'Geändert', changes.length)}

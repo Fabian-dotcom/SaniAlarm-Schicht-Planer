@@ -104,6 +104,15 @@ t('Datumsbereich plant nur den gewählten Teil und lässt bestehende Tage fix', 
   assert.strictEqual(r.stats.days, 5);
   assert.deepStrictEqual(Object.keys(r.plan).filter(k => k >= '2026-11-16' && k <= '2026-11-20').sort(), ['2026-11-16','2026-11-17','2026-11-18','2026-11-19','2026-11-20']);
 });
+t('Ausgewählte bestehende Tage werden neu berechnet, nicht ausgewählte und markierte bleiben geschützt', () => {
+  const replaceable = { team: [0, 3], teamId: 1, extra: [], status: 'ok', tag: 'OK', note: 'vorherig automatisch' };
+  const protectedEntry = { team: [4, 20], teamId: 3, extra: [], status: 'ok', tag: 'OK', note: 'manuell', mark: true };
+  const r = S.solveMonth({ year: 2026, month: 10, members: mk(), blocks: [], plan: { '2026-11-16': replaceable, '2026-11-17': protectedEntry }, settings: settings(), today: TODAY, from: '2026-11-16', to: '2026-11-18', replaceExisting: true });
+  assert.notDeepStrictEqual(r.plan['2026-11-16'], replaceable, 'vorhandener nicht markierter Dienst muss neu berechnet werden');
+  assert.deepStrictEqual(r.plan['2026-11-17'], protectedEntry, 'manuell markierter Tag darf nie ersetzt werden');
+  assert(Object.prototype.hasOwnProperty.call(r.plan, '2026-11-18'), 'freier Tag im Zeitraum muss ergänzt werden');
+  assert.strictEqual(r.stats.days, 2);
+});
 t('Bestehende Nachbarwochen wirken als Randbedingung (Woche über Monatsgrenze)', () => {
   // Team 1 hat Mo 30.11. (Woche des 27.11.? nein: KW 49) → im Dezember darf es in dieser Woche nicht nochmal
   const plan = { '2026-11-30': { team: [0, 3], teamId: 1, extra: [], status: 'ok', tag: 'OK', note: '' } };

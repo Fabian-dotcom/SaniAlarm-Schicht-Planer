@@ -158,8 +158,9 @@
       if (!isSchool(d)) continue;
       const k = iso(d);
       if (k < todayK) continue;
-      if (plan[k]) continue;           // jeder bestehende Eintrag bleibt unverändert
-      if (lockedMap[k]) continue;      // händisch vorbelegt → wird NICHT neu berechnet
+      const isLocked = !!(lockedMap[k] || (o.replaceExisting && plan[k] && plan[k].mark));
+      if (isLocked) continue;          // händisch fixierte Tage haben immer Vorrang
+      if (!o.replaceExisting && plan[k]) continue;
       const modeKey = dayModes[k] || 'normal';
       const per = modeKey === 'event' ? Math.max(defaultPer, 4) : defaultPer;
       const ym = `${d.getFullYear()}-${d.getMonth()}`;
@@ -212,7 +213,8 @@
         if (isTrainee(byId.get(id) || {})) inc(U.trainee, id, s);
       });
     }
-    // bereits bestehende Einträge außerhalb des Lösungsraums (Vergangenheit, Nachbarmonate) wirken als Randbedingung
+    // Bestehende Einträge außerhalb des Lösungsraums wirken als Randbedingung;
+    // explizit zur Neuoptimierung ausgewählte Tage werden dagegen aus der Statistik entfernt.
     Object.entries(plan).forEach(([k, e]) => { if (!solveKeys.has(k)) apply(e, meta(parse(k)), 1); });
 
     /* --- Wochenvorziehung: spätere Sperren bevorzugen passende frühe Tage --- */
@@ -464,8 +466,8 @@
       else if (e.tag === 'REG' || (e.rules && e.rules.length)) relaxed++;
       if (/^\d\//.test(e.tag) && e.status === 'warn') understaffed++;
     });
-    // Bereits vorhandene Tage unverändert in die Ausgabe übernehmen.
-    Object.entries(plan).forEach(([k, e]) => { out[k] = e; });
+    // Bestehende und händisch fixierte Tage außerhalb des Lösungsraums erhalten.
+    Object.entries(plan).forEach(([k, e]) => { if (!solveKeys.has(k)) out[k] = e; });
     Object.entries(lockedMap).forEach(([k, e]) => { out[k] = e; });
     return { plan: out, stats: { days: days.length, relaxed, understaffed, open,
       cost: best.cost === Infinity ? 0 : Math.round(best.cost * 100) / 100, nodes, aborted, ms: Date.now() - t0 } };

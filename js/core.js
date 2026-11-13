@@ -325,15 +325,16 @@ function boot() {
 
 /* ---------- Solver-Wrapper ---------- */
 function solve(y, mo, opts = {}) {
-  // Bestehende Plan-Einträge bleiben immer gesperrt; die Solver-Ausgabe enthält sie nur zum Anzeigevergleich.
-  const protectedEntries = {};
-  Object.entries(plan).forEach(([k, e]) => { if (e) protectedEntries[k] = e; });
+  // Händisch fixierte Tage bleiben immer gesperrt. Bei expliziter Neuoptimierung
+  // dürfen sonstige vorhandene Einträge nur im gewählten Zeitraum ersetzt werden.
+  const lockedEntries = {};
+  Object.entries(plan).forEach(([k, e]) => { if (e?.mark) lockedEntries[k] = e; });
   const r = SS.solveMonth({ year: y, month: mo, members, blocks, plan, settings, today: TODAY, dayModes,
-    locked: protectedEntries, ...opts });
+    locked: lockedEntries, ...opts });
   const from = opts.from || `${y}-${String(mo + 1).padStart(2, '0')}-01`;
   const to = opts.to || SS.iso(new Date(y, mo + 1, 0));
   Object.entries(r.plan).forEach(([k, entry]) => {
-    if (!plan[k] && k >= from && k <= to) plan[k] = entry;
+    if (k >= from && k <= to && (!plan[k] || opts.replaceExisting) && !lockedEntries[k]) plan[k] = entry;
   });
   return r.stats;
 }
@@ -472,10 +473,10 @@ window.SaniPlanerData = Object.freeze({
   upsertMember,
   snapshot,
   restore,
-  generate: (from, to) => {
+  generate: (from, to, options = {}) => {
     const a = SS.parse(from), b = SS.parse(to);
     if (Number.isNaN(+a) || Number.isNaN(+b) || from > to) throw new Error('Ungültiger Planungszeitraum');
-    const stats = solve(a.getFullYear(), a.getMonth(), { from, to });
+    const stats = solve(a.getFullYear(), a.getMonth(), { from, to, ...options });
     save();
     return { stats, plan: JSON.parse(JSON.stringify(plan)) };
   }
