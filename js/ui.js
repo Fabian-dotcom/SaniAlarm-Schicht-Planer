@@ -198,6 +198,24 @@ function blockRow(b) {
     <button class="icon-btn del" data-del-block="${b.id}" aria-label="Sperrtag ${esc(b.title)} löschen"><i data-lucide="trash-2"></i></button></div>`;
 }
 
+function rankDayCandidates(d, info) {
+  const assigned = new Set(info?.team || []), blocked = blockedMap(d);
+  const teamId = info?.teamId ?? null;
+  const hasAusb = [...assigned].some(id => m(id)?.ausb);
+  const ranked = members.filter(x => x.available && !blocked.has(x.id) && !assigned.has(x.id)).map(x => {
+    const prefMatch = x.quali === 'ausbildung' && x.ausbilderTeamsSpecified && teamId != null && x.ausbilderTeams.includes(teamId);
+    const incompatible = x.quali === 'ausbildung' && x.ausbilderTeamsSpecified && teamId != null && !x.ausbilderTeams.includes(teamId);
+    const wouldHaveAusb = hasAusb || x.ausb;
+    const teamLoad = planCounts(d.getFullYear(), d.getMonth()).get(x.id) || 0;
+    const score = (wouldHaveAusb ? 1000 : -1000) + (prefMatch ? 250 : 0) - (incompatible ? 500 : 0) - x.total * 12 - teamLoad * 30 + (x.springer ? 5 : 0);
+    const reasons = [x.ausb ? 'AUSB' : x.quali === 'ausbildung' ? (prefMatch ? 'Azubi · Wunschteam' : 'Azubi') : 'Helfer', `${x.total} Dienste`];
+    if (incompatible) reasons.push('Wunschteam passt nicht');
+    if (!wouldHaveAusb) reasons.push('AUSB im Team fehlt');
+    return { x, score, reasons };
+  }).sort((a, b) => b.score - a.score || fullName(a.x).localeCompare(fullName(b.x), 'de'));
+  return ranked;
+}
+
 function renderDetail() {
   const d = selected, el = $('#dayDetail');
   if (d.getMonth() !== viewMonth.getMonth() || d.getFullYear() !== viewMonth.getFullYear() || !isSchool(d)) {
@@ -222,6 +240,17 @@ function renderDetail() {
       <div class="note"><i data-lucide="${icon}" style="color:${color}"></i><span>${esc(info.note)}</span></div>
       <div class="team">${info.team.length ? info.team.map(id => m(id) ? `<span class="chip-person ${info.hit.includes(id) ? 'hit' : ''}">${av(m(id))}${esc(short(m(id)))}${info.extra?.includes(id) ? ' <span class="badge spr">SPR</span>' : ''}${m(id).ausb ? ' <span class="badge">AUSB</span>' : ''}</span>` : '').join('') : '<span class="muted-s">Noch niemand eingeteilt</span>'}</div>`;
   }
+  if (curMode.key !== 'free') {
+    const candidates = rankDayCandidates(d, info);
+    const assignedCount = info?.team.length || 0;
+    const maxShift = Math.max(settings.maxShift || settings.perShift, settings.perShift);
+    html += `<details class="day-candidates"><summary><i data-lucide="user-search"></i> Geeignete Personen anzeigen <small>${candidates.length}</small></summary>
+      <p class="muted-s">${assignedCount ? 'Zusätzliche oder austauschbare Personen, sortiert nach Eignung: AUSB-Absicherung, Teampräferenz und bisherige Dienste.' : 'Für diesen Tag verfügbare Personen, sortiert nach Eignung und bisheriger Dienstzahl.'}</p>
+      <div class="list">${candidates.map(({ x, reasons }, i) => `<div class="prow"><span class="rank">${i + 1}</span>${av(x)}<div class="t"><span>${esc(fullName(x))}</span><small>${esc(reasons.join(' · '))}</small></div></div>`).join('') || '<p class="muted">Keine geeigneten Personen verfügbar.</p>'}</div>
+      ${assignedCount ? `<small class="muted-s">${assignedCount >= maxShift ? 'Die Schicht ist bereits voll; die Liste zeigt mögliche Ersatz- bzw. Austauschpersonen.' : `Noch ${maxShift - assignedCount} Platz/Plätze bis zur maximalen Schichtgröße.`}</small>` : ''}
+    </details>`;
+  }
+  if (info && plan[iso(d)]) html += `<div class="form-row" style="margin-top:10px"><button class="btn danger wide" data-del-day="${iso(d)}"><i data-lucide="trash-2"></i>Tag aus dem Kalender entfernen</button></div>`;
   if (bl.length) html += `<div class="sub-h" style="margin-top:14px">Sperrtage &amp; Stundenblöcke <small>${bl.length}</small></div>${bl.map(blockRow).join('')}`;
   if (info && !info.mark) html += `<div class="form-row" style="margin-top:12px"><button class="btn ghost wide" id="lockCurrentDay"><i data-lucide="lock"></i>Tag manuell fixieren</button></div>`;
   html += `<div class="form-row" style="margin-top:12px"><button class="btn ghost wide" data-new-block="${iso(d)}"><i data-lucide="calendar-x"></i>Sperre für diesen Tag</button></div>`;
@@ -1499,9 +1528,10 @@ function openQrInviteModal() {
   // dort können Azubis dort abwählen, welche Teams sie NICHT möchten.
   const ausbTeams = teamsList().filter(t => teamHasAusb(t.ids));
   const ausbTeamIds = ausbTeams.map(t => t.id);
-  const teamNamesParam = encodeURIComponent(JSON.stringify(ausbTeams.map(t => [t.id, `Team ${t.id} · ${t.ids.map(id => fullName(m(id))).join(' & ')}`])));
-  const teamsParam = ausbTeamIds.length ? `&teams=${ausbTeamIds.join(',')}&teamNames=${teamNamesParam}` : '';
-  const webJoinUrl = `https://sani-alarm-planer.netlify.app/?beitritt=1${teamsParam}#key=${secretKey}`;
+  // Der QR-Link transportiert ausschließlich die kompakten Team-IDs. Teamnamen
+  // werden bewusst nicht in den QR-Payload geschrieben, damit er klein und scannbar bleibt.
+  const teamsParam = ausbTeamIds.length ? `&teams=${ausbTeamIds.join(',')}` : '';
+  const webJoinUrl = `https://sani-alarm-planer.netlify.app/?beitritt=1#key=${secretKey}${teamsParam}`;
 
   openModal(`<h3 id="mTitle"><i data-lucide="qr-code" style="vertical-align:-3px"></i> Neuer Sani: Beitritt &amp; Einladung</h3>
     <p class="lead">Schüler können den echten QR-Code scannen, den Link öffnen oder ihren Anmeldecode direkt an dich übermitteln.</p>
@@ -1659,12 +1689,18 @@ function drawQrCode(container, text) {
 
 /* ---------- Globale Delegation ---------- */
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-del-block],[data-new-block],[data-new-block-person],[data-open],[data-toggle],[data-del-member],[data-dissolve],[data-sort],#addMember,#memQrInvite,#panicBtn');
+  const t = e.target.closest('[data-del-day],[data-del-block],[data-new-block],[data-new-block-person],[data-open],[data-toggle],[data-del-member],[data-dissolve],[data-sort],#addMember,#memQrInvite,#panicBtn');
   if (!t) return;
   if (t.id === 'addMember') { openMember(null); return; }
   if (t.id === 'memQrInvite') { openQrInviteModal(); return; }
   if (t.id === 'panicBtn') { openPanicModal(); return; }
-  if (t.dataset.delBlock) {
+  if (t.dataset.delDay) {
+    const dayKey = t.dataset.delDay;
+    if (!plan[dayKey]) return;
+    confirmBox('Tag aus dem Kalender entfernen?', `Der Planeintrag für ${dayKey} wird vollständig entfernt. Die beteiligten Personen werden dadurch wieder als verfügbar für die Planung gewertet.`, 'Tag entfernen', () => {
+      delete plan[dayKey]; save(); renderAll(); toast(`Planeintrag für ${dayKey} entfernt`);
+    });
+  } else if (t.dataset.delBlock) {
     const b = blocks.find(x => x.id === +t.dataset.delBlock); if (!b) return;
     blocks = blocks.filter(x => x !== b); save(); renderAll(); modalRefresh?.(); toast(`Sperrtag „${b.title}“ gelöscht`);
   } else if (t.hasAttribute('data-new-block')) openBlockModal({ date: t.dataset.newBlock || undefined });
